@@ -1,0 +1,15 @@
+services:
+  hpdb-api:
+    build: .
+    container_name: hpdb-api
+    ports:
+      - "16444:16444"
+    environment:
+      HPDB_PATH: /data/hpdb_default.sqlite
+      UPLOAD_DIR: /data/uploads
+      API_KEYS_PATH: /data/keys.ini
+      ZIP_CSV_PATH: /data/uszips.csv
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+

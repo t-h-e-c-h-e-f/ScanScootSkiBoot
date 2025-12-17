@@ -39,6 +39,14 @@ Or:
 python3 app.py
 ```
 
+### Docker (optional)
+
+```bash
+mkdir -p data/uploads
+cp keys.ini data/keys.ini
+docker compose up --build
+```
+
 Environment variables (optional):
 
 - `HPDB_PATH` (default: `./hpdb_default.sqlite`)

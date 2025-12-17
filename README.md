@@ -38,6 +38,23 @@ and provide a simple upload UI for initializing the database (API key + `MasterH
 There is also a browser update UI at `/update` (API key + `MasterHpdb.hp1` upload) which shows a small added/removed/changed
 summary after the update completes.
 
+## Docker / docker-compose
+
+1) Create a local data directory and add a `keys.ini`:
+
+```bash
+mkdir -p data/uploads
+cp keys.ini data/keys.ini
+```
+
+2) Start the service:
+
+```bash
+docker compose up --build
+```
+
+Then open `http://localhost:16444/`.
+
 ### Environment variables
 
 - `HPDB_PATH` (default: `./hpdb_default.sqlite`)
