@@ -1,10 +1,22 @@
 # HPDB API Server
 
+See `QUICKSTART.md` for the fastest setup path.
+
 This repo contains:
 
 - A converter (`hpdb_to_sqlite.py`) that turns Uniden-style HomePatrol text exports into SQLite.
 - A FastAPI server (`app.py`) that queries that SQLite DB by state/county or ZIP code.
 - Admin endpoints to upload/initialize the DB and to safely apply updates.
+
+## Screenshots
+
+Initialization UI (`/initialize`):
+
+![Initialization UI](init.png)
+
+Update UI (`/update`):
+
+![Update UI](update.png)
 
 ## Run the API
 
