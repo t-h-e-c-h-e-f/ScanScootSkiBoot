@@ -1,4 +1,4 @@
-# HPDB API Server
+# CodePlug-PB API Server
 
 See `QUICKSTART.md` for the fastest setup path.
 
@@ -7,6 +7,7 @@ This repo contains:
 - A converter (`hpdb_to_sqlite.py`) that turns Uniden-style HomePatrol text exports into SQLite.
 - A FastAPI server (`app.py`) that queries that SQLite DB by state/county or ZIP code.
 - Admin endpoints to upload/initialize the DB and to safely apply updates.
+- A browser map UI with radio-data wizards (Trunk Recorder, SDRTrunk, OP25).
 
 ## Screenshots
 
@@ -17,6 +18,14 @@ Initialization UI (`/initialize`):
 Update UI (`/update`):
 
 ![Update UI](update.png)
+
+County/Map UI (`/map` → `/state/<ABBR>/<county>`):
+
+- Click a state → counties → county popup.
+- County popup shows conventional + trunked data and provides download wizards:
+  - Trunk Recorder ZIP (config + talkgroups + channels CSV, `County_State_` prefix)
+  - SDRTrunk playlist.xml (per county/system)
+  - OP25 config ZIP (JSON + optional TG whitelist TSV)
 
 ## Run the API
 
@@ -121,6 +130,17 @@ List/search counties within a state:
 ```bash
 curl "http://localhost:16444/hpdb/counties?state=MO&q=jac"
 ```
+
+## Frontend / map UI
+
+- State picker: `/map` (click a state → counties). SEO-friendly county URLs: `/state/<ABBR>/<county>` (case-insensitive, hyphen/underscore tolerant), e.g. `/state/NY/Suffolk`.
+- County popup:
+  - Conventional frequencies (collapsible, scrollable)
+  - Trunked systems/sites (collapsible, scrollable)
+  - Wizards:
+    - Trunk Recorder ZIP (config + talkgroups/channels CSV; filenames prefixed `County_State_`)
+    - SDRTrunk playlist.xml (prefilled playlist name)
+    - OP25 config ZIP (JSON + optional TG whitelist TSV; templates: P25 single/two RTL, P25 Airspy, P25 conventional, DMR RTL/Airspy, SmartNet)
 
 ## Admin endpoints (uploads / updates)
 

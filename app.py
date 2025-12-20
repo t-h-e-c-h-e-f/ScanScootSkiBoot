@@ -1,4 +1,4 @@
-"""FastAPI REST API exposing HPDB SQLite data.
+"""FastAPI REST API exposing CodePlug-PB SQLite data.
 
 This app is meant to sit on top of the SQLite database produced by `hpdb_to_sqlite.py`.
 
@@ -17,6 +17,7 @@ Environment:
 import math
 import os
 import sqlite3
+import io
 import shutil
 import tempfile
 import threading
@@ -25,29 +26,44 @@ import hashlib
 import time
 import configparser
 import hmac
+import random
+import requests
+from pathlib import Path
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("HPDB_PATH", "hpdb_default.sqlite")
 ZIP_CSV_PATH = os.environ.get("ZIP_CSV_PATH", "uszips.csv")
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
 API_KEYS_PATH = os.environ.get("API_KEYS_PATH", "keys.ini")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 
 def get_conn():
     if not os.path.exists(DB_PATH):
         raise HTTPException(
             status_code=503,
-            detail=f"HPDB database not found at {DB_PATH!r}. Upload MasterHpdb.hp1 via /hpdb/admin/upload-master to initialize.",
+            detail=f"CodePlug-PB database not found at {DB_PATH!r}. Upload MasterHpdb.hp1 via /hpdb/admin/upload-master to initialize.",
         )
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _row_get(row: sqlite3.Row, key: str) -> Any:
+    try:
+        if hasattr(row, "keys") and key in row.keys():
+            return row[key]
+    except Exception:
+        return None
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -233,6 +249,8 @@ class TrunkSite(BaseModel):
     site_id: int
     site_name: Optional[str] = None
     distance_miles: Optional[float] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
     frequencies: List[SiteFrequencyRow] = []
 
 
@@ -253,7 +271,8 @@ class CountyQueryResponse(BaseModel):
     talkgroups: List[TalkgroupRow]
 
 
-app = FastAPI(title="HPDB REST API", version="0.1.0", description="REST wrapper over local HPDB SQLite")
+app = FastAPI(title="CodePlug-PB REST API", version="0.1.0", description="REST wrapper over local CodePlug-PB SQLite")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.on_event("startup")
@@ -949,7 +968,151 @@ def update_master(
 def root():
     if not os.path.exists(DB_PATH):
         return RedirectResponse(url="/initialize", status_code=302)
+    if os.path.exists(os.path.join(STATIC_DIR, "map.html")):
+        return RedirectResponse(url="/map", status_code=302)
     return RedirectResponse(url="/docs", status_code=302)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    # serve an empty 1x1 gif to avoid 404 noise
+    empty_gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    return Response(content=empty_gif, media_type="image/gif")
+
+
+@app.get("/about", include_in_schema=False, response_class=HTMLResponse)
+def about_page():
+    about_path = os.path.join(STATIC_DIR, "about.html")
+    if not os.path.exists(about_path):
+        raise HTTPException(status_code=404, detail="about.html not found in static/")
+    return HTMLResponse(Path(about_path).read_text(encoding="utf-8"))
+
+
+def _pick_404_image() -> str:
+    """
+    Pick a random 404 image from static/ matching 404*.png, fallback to 404.png.
+    """
+    try:
+        names = [
+            fn
+            for fn in os.listdir(STATIC_DIR)
+            if fn.lower().startswith("404") and fn.lower().endswith(".png") and os.path.isfile(os.path.join(STATIC_DIR, fn))
+        ]
+    except FileNotFoundError:
+        names = []
+    if not names:
+        return "404.png"
+    return random.choice(names)
+
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc: HTTPException):
+    """
+    Custom 404: return the branded HTML page when the client prefers HTML; otherwise JSON.
+    """
+    accept = (request.headers.get("accept") or "").lower()
+    wants_html = "text/html" in accept or "*/*" in accept or not accept
+    img_name = _pick_404_image()
+    img_src = f"/static/{img_name}"
+    if wants_html:
+        template_path = os.path.join(STATIC_DIR, "404.html")
+        if os.path.exists(template_path):
+            body = (
+                Path(template_path)
+                .read_text(encoding="utf-8")
+                .replace("STATIC_404_IMAGE", img_src)
+                .replace("STATIC_404_NAME", img_name)
+            )
+        else:
+            # minimal fallback that still shows the provided PNG
+            body = f"""<!doctype html><html><head><meta charset='utf-8'><title>Not Found</title></head><body style='margin:0;background:#03060c;display:flex;align-items:center;justify-content:center;height:100vh;'><img src='{img_src}' alt='404 - Not Found'></body></html>"""
+        return HTMLResponse(body, status_code=404)
+
+    detail = exc.detail if isinstance(exc, HTTPException) and exc.detail else "Not Found"
+    return JSONResponse({"detail": detail}, status_code=404)
+
+
+@app.get("/map", include_in_schema=False, response_class=HTMLResponse)
+def map_page():
+    """
+    Simple front-end that visualizes US states and links to county details.
+    """
+    map_path = os.path.join(STATIC_DIR, "map.html")
+    if not os.path.exists(map_path):
+        raise HTTPException(status_code=404, detail="map.html not found in static/")
+    with open(map_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+@app.get("/map/state", include_in_schema=False, response_class=HTMLResponse)
+def map_state_page():
+    """
+    County-level map for a single state. Expects ?state=FIPS (02-digit).
+    """
+    state_path = os.path.join(STATIC_DIR, "state.html")
+    if not os.path.exists(state_path):
+        raise HTTPException(status_code=404, detail="state.html not found in static/")
+    with open(state_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+def _render_state_page_with_seo(state_abbrev: str | None = None, county_name: str | None = None) -> str:
+    """
+    Helper to inject data attributes for SEO-friendly county URLs into state.html.
+    """
+    state_path = os.path.join(STATIC_DIR, "state.html")
+    if not os.path.exists(state_path):
+        raise HTTPException(status_code=404, detail="state.html not found in static/")
+    html = Path(state_path).read_text(encoding="utf-8")
+
+    attrs = []
+    if state_abbrev:
+        attrs.append(f'data-state-abbr="{state_abbrev}"')
+    if county_name:
+        attrs.append(f'data-county-name="{county_name}"')
+    attrs_str = " ".join(attrs)
+
+    if "<body>" in html:
+        html = html.replace("<body>", f"<body {attrs_str}>", 1)
+    elif "<body " in html:
+        # already has attributes; inject before closing bracket of first body tag
+        html = html.replace("<body ", f"<body {attrs_str} ", 1)
+    return html
+
+
+def _serve_seo_county(state_abbrev: str, county_name: str) -> HTMLResponse:
+    sa = (state_abbrev or "").strip().upper()
+    cn = (county_name or "").strip()
+    if len(sa) != 2 or not sa.isalpha():
+        raise HTTPException(status_code=404, detail="Not Found")
+    cn = cn.replace("-", " ").replace("_", " ")
+    html = _render_state_page_with_seo(sa, cn)
+    return HTMLResponse(html)
+
+
+@app.get("/state/{state_abbrev}", include_in_schema=False, response_class=HTMLResponse)
+def seo_state_page(state_abbrev: str):
+    """
+    SEO-friendly state URL: /state/NY (case-insensitive).
+    """
+    sa = (state_abbrev or "").strip().upper()
+    if len(sa) != 2 or not sa.isalpha():
+        raise HTTPException(status_code=404, detail="Not Found")
+    html = _render_state_page_with_seo(sa, None)
+    return HTMLResponse(html)
+
+
+@app.get("/state/{state_abbrev}/{county_name}", include_in_schema=False, response_class=HTMLResponse)
+def seo_county_page(state_abbrev: str, county_name: str):
+    """
+    SEO-friendly county URL: /state/NY/Suffolk (case-insensitive).
+    """
+    return _serve_seo_county(state_abbrev, county_name)
+
+
+@app.get("/state/{state_abbrev}/{county_name}/", include_in_schema=False, response_class=HTMLResponse)
+def seo_county_page_slash(state_abbrev: str, county_name: str):
+    return _serve_seo_county(state_abbrev, county_name)
 
 
 @app.get("/initialize", include_in_schema=False, response_class=HTMLResponse)
@@ -964,7 +1127,7 @@ def initialize_page():
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HPDB Initialization</title>
+    <title>CodePlug-PB Initialization</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b1220; color: #e7eaf0; }
       .wrap { max-width: 860px; margin: 0 auto; padding: 56px 20px; }
@@ -1097,7 +1260,7 @@ def update_page():
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HPDB Update</title>
+    <title>CodePlug-PB Update</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b1220; color: #e7eaf0; }
       .wrap { max-width: 960px; margin: 0 auto; padding: 56px 20px; }
@@ -1403,7 +1566,16 @@ def hpdb_query_impl(
             )
             sites_by_trunk.setdefault(trunk_id, {})
             site_id = int(r["SiteId"])
-            sites_by_trunk[trunk_id].setdefault(site_id, TrunkSite(site_id=site_id, site_name=r["SiteName"], frequencies=[]))
+            sites_by_trunk[trunk_id].setdefault(
+                site_id,
+                TrunkSite(
+                    site_id=site_id,
+                    site_name=r["SiteName"],
+                    lat=_row_get(r, "lat"),
+                    lon=_row_get(r, "lon"),
+                    frequencies=[],
+                ),
+            )
             sites_by_trunk[trunk_id][site_id].frequencies.append(
                 SiteFrequencyRow(
                     frequency_hz=r["FrequencyHz"],
@@ -1479,6 +1651,428 @@ def bounding_box(lat: float, lon: float, radius_miles: float) -> Tuple[float, fl
     lat_delta = radius_miles / 69.0
     lon_delta = radius_miles / (69.0 * max(0.1, math.cos(math.radians(lat))))
     return (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta)
+
+
+def _approx_zoom(lat: float, radius_miles: float, width_px: int = 640) -> int:
+    """
+    Pick a web-mercator zoom level so the given radius fits horizontally in width_px.
+    """
+    radius_m = max(radius_miles, 0.1) * 1609.344
+    meters_per_px_target = max((radius_m * 2) / max(width_px, 64), 0.1)
+    # meters/px at zoom 0: 156543.03392 * cos(lat)
+    zoom_float = math.log2((156543.03392 * math.cos(math.radians(lat))) / meters_per_px_target)
+    return int(min(17, max(2, round(zoom_float))))
+
+
+def _latlon_to_pixel(lat: float, lon: float, zoom: int) -> Tuple[float, float]:
+    # Web mercator x/y in pixel coords at given zoom
+    lat = max(min(lat, 85.05112878), -85.05112878)
+    n = 2.0 ** zoom
+    x = (lon + 180.0) / 360.0 * n * 256.0
+    lat_rad = math.radians(lat)
+    y = (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n * 256.0
+    return x, y
+
+
+def _render_osm_static(center_lat: float, center_lon: float, zoom: int, width: int, height: int, markers: List[Tuple[float, float]]) -> bytes:
+    """
+    Compose a static PNG using OSM tiles and circle markers (no text labels for reliability).
+    """
+    try:
+        from PIL import Image, ImageDraw
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pillow is required for static maps: {exc}")
+
+    center_px, center_py = _latlon_to_pixel(center_lat, center_lon, zoom)
+    half_w, half_h = width / 2.0, height / 2.0
+    min_px = center_px - half_w
+    min_py = center_py - half_h
+    max_px = center_px + half_w
+    max_py = center_py + half_h
+
+    def tile_range(min_p: float, max_p: float) -> Tuple[int, int]:
+        return int(math.floor(min_p / 256.0)), int(math.floor(max_p / 256.0))
+
+    tx_min, tx_max = tile_range(min_px, max_px)
+    ty_min, ty_max = tile_range(min_py, max_py)
+
+    img = Image.new("RGBA", (width, height), (5, 7, 15, 255))
+    draw = ImageDraw.Draw(img)
+
+    ua = {"User-Agent": "CodePlug-PB/0.1 (static-map)"}
+    tiles_drawn = 0
+    for tx in range(tx_min, tx_max + 1):
+        for ty in range(ty_min, ty_max + 1):
+            if tx < 0 or ty < 0:
+                continue
+            tile_url = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+            try:
+                r = requests.get(tile_url, headers=ua, timeout=6)
+                if r.status_code != 200:
+                    continue
+                tile = Image.open(io.BytesIO(r.content)).convert("RGBA")
+            except Exception:
+                continue
+            px = int(tx * 256 - min_px)
+            py = int(ty * 256 - min_py)
+            img.paste(tile, (px, py))
+            tiles_drawn += 1
+
+    for lat, lon in markers:
+        mx, my = _latlon_to_pixel(lat, lon, zoom)
+        sx = int(round(mx - min_px))
+        sy = int(round(my - min_py))
+        r = 6
+        draw.ellipse((sx - r, sy - r, sx + r, sy + r), fill=(99, 179, 237, 255), outline=(10, 20, 40, 255), width=2)
+
+    if tiles_drawn == 0:
+        raise RuntimeError("No OSM tiles fetched")
+
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _render_staticmaps_with_labels(
+    center_lat: float, center_lon: float, zoom: int, width: int, height: int, markers: List[Tuple[float, float, str]]
+) -> bytes:
+    """
+    Render map via py-staticmaps (tiles + markers), then overlay lightweight labels with Pillow.
+    """
+    try:
+        import staticmaps
+        from PIL import Image, ImageDraw, ImageFont
+        import tempfile
+        import os
+    except Exception as exc:
+        raise RuntimeError(f"staticmaps or Pillow missing: {exc}")
+
+    # Shim for Pillow 11 where textsize was removed; staticmaps still calls it.
+    if not hasattr(ImageDraw.ImageDraw, "textsize"):
+        def _textsize(self, text, font=None, *args, **kwargs):
+            bbox = self.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        ImageDraw.ImageDraw.textsize = _textsize  # type: ignore
+
+    def _make_label_icon(text: str) -> str:
+        txt = (text or "").strip() or "Site"
+        font = ImageFont.load_default()
+        # Pillow 11 removed getsize; use textbbox for compatibility
+        dummy = Image.new("RGBA", (1, 1))
+        draw = ImageDraw.Draw(dummy)
+        bbox = draw.textbbox((0, 0), txt, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        pad = 4
+        w, h = tw + pad * 2, th + pad * 2
+        img = Image.new("RGBA", (w + 8, h + 8), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        # bubble
+        draw.rectangle((4, 4, 4 + w, 4 + h), fill=(0, 80, 200, 230), outline=(255, 255, 255, 220), width=1)
+        draw.text((4 + pad, 4 + pad), txt, font=font, fill=(255, 255, 255, 255))
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+        img.save(tmp, format="PNG")
+        tmp.close()
+        return tmp.name
+
+    ctx = staticmaps.Context()
+    # Empty attribution to avoid renderer text issues; we handle labels separately.
+    ctx.set_tile_provider(staticmaps.TileProvider("https://tile.openstreetmap.org/{z}/{x}/{y}.png", ""))
+    ctx.set_center(staticmaps.create_latlng(center_lat, center_lon))
+    ctx.set_zoom(zoom)
+    tmp_files: List[str] = []
+    try:
+        for lat, lon, label in markers:
+            icon_path = _make_label_icon(label)
+            tmp_files.append(icon_path)
+            pos = staticmaps.create_latlng(lat, lon)
+            ctx.add_object(staticmaps.ImageMarker(pos, icon_path, origin_x=10, origin_y=10))
+
+        img = ctx.render_pillow(width, height)
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+    finally:
+        for p in tmp_files:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+
+def _render_staticmaps_base(center_lat: float, center_lon: float, zoom: int, width: int, height: int) -> bytes:
+    """
+    Render only the base map via py-staticmaps (no markers). Used when we want our own overlays.
+    """
+    try:
+        import staticmaps
+    except Exception as exc:
+        raise RuntimeError(f"staticmaps missing: {exc}")
+
+    ctx = staticmaps.Context()
+    ctx.set_tile_provider(staticmaps.TileProvider("https://tile.openstreetmap.org/{z}/{x}/{y}.png", ""))
+    ctx.set_center(staticmaps.create_latlng(center_lat, center_lon))
+    ctx.set_zoom(zoom)
+    img = ctx.render_pillow(width, height)
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _apply_osm_watermark(img) -> None:
+    # Watermark intentionally disabled
+    return None
+
+
+def _finalize_png_bytes(buf: bytes) -> bytes:
+    """
+    Recompress PNG to keep size small (palette quantization).
+    """
+    try:
+        from PIL import Image
+    except Exception:
+        return buf
+    try:
+        img = Image.open(io.BytesIO(buf))
+        if img.mode in ("RGBA", "LA"):
+            bg = Image.new("RGB", img.size, (255, 255, 255))
+            bg.paste(img, mask=img.split()[-1])
+            img = bg
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+        pal = img.convert("P", palette=Image.ADAPTIVE, colors=256)
+        out = io.BytesIO()
+        pal.save(out, format="PNG", optimize=True, compress_level=9)
+        return out.getvalue()
+    except Exception:
+        return buf
+
+
+def _draw_labels_on_image(
+    base_png: bytes,
+    center_lat: float,
+    center_lon: float,
+    zoom: int,
+    width: int,
+    height: int,
+    labels: List[Tuple[float, float, str]],
+    extent_width: Optional[int] = None,
+    extent_height: Optional[int] = None,
+) -> bytes:
+    """
+    Draw markers + labels on a transparent overlay, then composite onto the base map.
+    extent_width/height lets us keep the geographic crop of a smaller canvas while rendering to a larger output.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        return base_png
+
+    def _encode_png_small(img: "Image.Image") -> bytes:
+        """Encode PNG with aggressive compression/quantization."""
+        try:
+            if img.mode in ("RGBA", "LA"):
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[-1])
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+            pal = img.convert("P", palette=Image.ADAPTIVE, colors=256)
+            buf = io.BytesIO()
+            pal.save(buf, format="PNG", optimize=True, compress_level=9)
+            return buf.getvalue()
+        except Exception:
+            return base_png
+
+    extent_w = float(extent_width or width)
+    extent_h = float(extent_height or height)
+    scale_x = width / extent_w
+    scale_y = height / extent_h
+
+    try:
+        base = Image.open(io.BytesIO(base_png)).convert("RGBA")
+        if base.size != (width, height):
+            base = base.resize((width, height), resample=Image.LANCZOS)
+    except Exception:
+        return base_png
+
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    # Pillow 11 compatibility: provide textsize if missing
+    if not hasattr(draw, "textsize"):
+        def _textsize(text, font=None):
+            bbox = draw.textbbox((0, 0), text, font=font)
+            return bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.textsize = _textsize  # type: ignore
+
+    font = ImageFont.load_default()
+
+    center_px, center_py = _latlon_to_pixel(center_lat, center_lon, zoom)
+    half_w, half_h = extent_w / 2.0, extent_h / 2.0  # geographic extent
+    min_px = center_px - half_w
+    min_py = center_py - half_h
+
+    # Precompute anchor points and label sizes
+    nodes = []
+    for lat, lon, label in labels:
+        mx, my = _latlon_to_pixel(lat, lon, zoom)
+        sx = int(round((mx - min_px) * scale_x))
+        sy = int(round((my - min_py) * scale_y))
+        txt = str(label)[:40]
+        tw, th = draw.textsize(txt, font=font)
+        pad = 3
+        w = tw + pad * 2
+        h = th + pad * 2
+        nodes.append({"anchor": (sx, sy), "size": (w, h), "text": txt})
+
+    # Greedy label placement with scored candidate offsets to reduce overlaps, then a light relaxation pass.
+    density_scale = max(scale_x, scale_y)
+    angle_deg = tuple(range(0, 360, 22))  # 16 directions
+    radii = [
+        32 * density_scale,
+        64 * density_scale,
+        110 * density_scale,
+        160 * density_scale,
+        220 * density_scale,
+    ]
+
+    def candidate_offsets():
+        for r in radii:
+            for a in angle_deg:
+                rad = math.radians(a)
+                yield (math.cos(rad) * r, math.sin(rad) * r)
+        yield (0.0, 0.0)  # fallback on anchor
+
+    def rect_for(anchor, size, offset):
+        sx, sy = anchor
+        ox, oy = offset
+        w, h = size
+        cx, cy = sx + ox, sy + oy
+        return (cx, cy, cx + w, cy + h)
+
+    placed_boxes: List[Tuple[float, float, float, float]] = []
+    # Place longer labels first so they get more room
+    nodes.sort(key=lambda n: len(n["text"]), reverse=True)
+    for n in nodes:
+        best = None
+        best_score = float("inf")
+        for off in candidate_offsets():
+            box = rect_for(n["anchor"], n["size"], off)
+            bx0, by0, bx1, by1 = box
+            overlap_penalty = 0.0
+            for pb in placed_boxes:
+                # add padding so labels don't touch
+                pad_sep = 6 * density_scale
+                ox = min(bx1, pb[2] + pad_sep) - max(bx0, pb[0] - pad_sep)
+                oy = min(by1, pb[3] + pad_sep) - max(by0, pb[1] - pad_sep)
+                if ox > 0 and oy > 0:
+                    overlap_penalty += ox * oy * 8.0
+            # Penalize going out of bounds
+            out_pen = 0.0
+            if bx0 < 0:
+                out_pen += abs(bx0) * 6
+            if by0 < 0:
+                out_pen += abs(by0) * 6
+            if bx1 > width:
+                out_pen += (bx1 - width) * 6
+            if by1 > height:
+                out_pen += (by1 - height) * 6
+            anchor_pen = (off[0] ** 2 + off[1] ** 2) ** 0.5 * 0.5
+            score = overlap_penalty + out_pen + anchor_pen
+            if score < best_score:
+                best_score = score
+                best = (off, box)
+        if best is None:
+            n["offset"] = (10.0 * density_scale, 0.0)
+        else:
+            n["offset"], box = best
+            placed_boxes.append(box)
+
+    # Light relaxation: push overlapping boxes apart a few times
+    for _ in range(14):
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                ni, nj = nodes[i], nodes[j]
+                bi = rect_for(ni["anchor"], ni["size"], ni["offset"])
+                bj = rect_for(nj["anchor"], nj["size"], nj["offset"])
+                pad_sep = 8 * density_scale
+                ox = min(bi[2], bj[2] + pad_sep) - max(bi[0], bj[0] - pad_sep)
+                oy = min(bi[3], bj[3] + pad_sep) - max(bi[1], bj[1] - pad_sep)
+                if ox > 0 and oy > 0:
+                    shift_x = (ox / 2 + 4) * (1 if ni["anchor"][0] <= nj["anchor"][0] else -1)
+                    shift_y = (oy / 2 + 4) * (1 if ni["anchor"][1] <= nj["anchor"][1] else -1)
+                    ni["offset"] = (ni["offset"][0] - shift_x, ni["offset"][1] - shift_y)
+                    nj["offset"] = (nj["offset"][0] + shift_x, nj["offset"][1] + shift_y)
+
+    # Draw markers + labels with leader lines
+    for n in nodes:
+        sx, sy = n["anchor"]
+        ox, oy = n["offset"]
+        w, h = n["size"]
+        txt = n["text"]
+
+        r = 5
+        dot_fill = (118, 180, 255, 235)
+        draw.ellipse((sx - r, sy - r, sx + r, sy + r), fill=dot_fill, outline=(10, 30, 60, 255), width=2)
+
+        bx0 = sx + ox
+        by0 = sy + oy - h / 2
+        bx1 = bx0 + w
+        by1 = by0 + h
+        draw.rectangle((bx0, by0, bx1, by1), fill=(12, 24, 48, 230), outline=(60, 120, 200, 220))
+        draw.text((bx0 + 3, by0 + 3), txt, font=font, fill=(225, 238, 255, 255))
+        # leader line
+        draw.line((sx, sy, (bx0 + bx1) / 2, (by0 + by1) / 2), fill=(120, 180, 255, 200), width=1)
+
+    # draw center bullseye
+    cx, cy = width // 2, height // 2
+    draw.ellipse((cx - 8, cy - 8, cx + 8, cy + 8), outline=(255, 60, 60, 230), width=2)
+    draw.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=(255, 60, 60, 230))
+
+    img = Image.alpha_composite(base, overlay)
+    return _encode_png_small(img)
+
+
+def _render_overlay(center_lat: float, center_lon: float, zoom: int, width: int, height: int, markers: List[Tuple[float, float, str]]) -> bytes:
+    """
+    Transparent overlay with markers + labels (no base tiles).
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Pillow is required for static map overlays: {exc}")
+
+    center_px, center_py = _latlon_to_pixel(center_lat, center_lon, zoom)
+    half_w, half_h = width / 2.0, height / 2.0
+    min_px = center_px - half_w
+    min_py = center_py - half_h
+
+    img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    for lat, lon, label in markers:
+        mx, my = _latlon_to_pixel(lat, lon, zoom)
+        sx = int(round(mx - min_px))
+        sy = int(round(my - min_py))
+        r = 6
+        draw.ellipse((sx - r, sy - r, sx + r, sy + r), fill=(99, 179, 237, 220), outline=(10, 20, 40, 255), width=2)
+        if label:
+            txt = str(label)[:28]
+            tw, th = draw.textsize(txt, font=font)
+            pad = 3
+            bx0, by0 = sx + r + 4, sy - th / 2 - pad
+            bx1, by1 = bx0 + tw + pad * 2, by0 + th + pad * 2
+            draw.rectangle((bx0, by0, bx1, by1), fill=(8, 12, 20, 230), outline=(30, 45, 70, 200))
+            draw.text((bx0 + pad, by0 + pad), txt, font=font, fill=(220, 235, 245, 255))
+
+    out = io.BytesIO()
+    try:
+        pal = img.convert("P", palette=Image.ADAPTIVE, colors=256, dither=Image.Dither.NONE)  # type: ignore[attr-defined]
+        pal.save(out, format="PNG", optimize=True, compress_level=9)
+    except Exception:
+        img.save(out, format="PNG")
+    return out.getvalue()
 
 
 def hpdb_query_near_point_impl(
@@ -1600,6 +2194,8 @@ def hpdb_query_near_point_impl(
                         str(r["SystemType"] or ""),
                         str(r["SiteName"] or ""),
                         float(d),
+                        float(r["lat"]),
+                        float(r["lon"]),
                     )
                 )
         selected_sites.sort(key=lambda x: x[5])
@@ -1624,13 +2220,15 @@ def hpdb_query_near_point_impl(
                 freq_by_site.setdefault(int(r["SiteId"]), []).append(r)
 
             sites_by_trunk: Dict[int, Dict[int, TrunkSite]] = {}
-            for trunk_id, site_id, sys_name, sys_type, site_name, dist in selected_sites:
+            for trunk_id, site_id, sys_name, sys_type, site_name, dist, site_lat, site_lon in selected_sites:
                 trunked.setdefault(
                     trunk_id,
                     TrunkSystem(trunk_id=trunk_id, system_name=sys_name, system_type=sys_type, sites=[]),
                 )
                 sites_by_trunk.setdefault(trunk_id, {})
-                ts = sites_by_trunk[trunk_id].setdefault(site_id, TrunkSite(site_id=site_id, site_name=site_name, distance_miles=dist))
+                ts = sites_by_trunk[trunk_id].setdefault(
+                    site_id, TrunkSite(site_id=site_id, site_name=site_name, distance_miles=dist, lat=site_lat, lon=site_lon)
+                )
                 for fr in freq_by_site.get(site_id, []):
                     ts.frequencies.append(
                         SiteFrequencyRow(
@@ -1646,9 +2244,17 @@ def hpdb_query_near_point_impl(
             for trunk_id, site_map in sites_by_trunk.items():
                 trunked[trunk_id].sites = list(site_map.values())
         else:
-            # Sites without frequencies
-            for trunk_id, _site_id, sys_name, sys_type, _site_name, _dist in selected_sites:
+            # Sites without frequencies: still return site metadata.
+            sites_by_trunk: Dict[int, Dict[int, TrunkSite]] = {}
+            for trunk_id, site_id, sys_name, sys_type, site_name, dist, site_lat, site_lon in selected_sites:
                 trunked.setdefault(trunk_id, TrunkSystem(trunk_id=trunk_id, system_name=sys_name, system_type=sys_type, sites=[]))
+                sites_by_trunk.setdefault(trunk_id, {})
+                sites_by_trunk[trunk_id].setdefault(
+                    site_id,
+                    TrunkSite(site_id=site_id, site_name=site_name, distance_miles=dist, lat=site_lat, lon=site_lon),
+                )
+            for trunk_id, site_map in sites_by_trunk.items():
+                trunked[trunk_id].sites = list(site_map.values())
 
         if include_talkgroups and trunked:
             trunk_ids = sorted(trunked.keys())
@@ -1704,6 +2310,7 @@ def hpdb_query_by_zip(
     include_trunk_sites: bool = Query(True),
     include_trunk_site_frequencies: bool = Query(True),
     limit_sites: int = Query(100, gt=0, le=5000, description="Max trunk sites to return when radius_miles > 0"),
+    limit_talkgroups: int = Query(2000, gt=0, le=500000, description="Max talkgroups to return"),
     limit_site_freq_rows: int = Query(5000, gt=0, le=500000),
     db: sqlite3.Connection = Depends(get_conn),
 ):
@@ -1728,6 +2335,7 @@ def hpdb_query_by_zip(
             include_trunk_sites=include_trunk_sites,
             include_trunk_site_frequencies=include_trunk_site_frequencies,
             limit_sites=limit_sites,
+            limit_talkgroups=limit_talkgroups,
             limit_site_freq_rows=limit_site_freq_rows,
         )
 
@@ -1741,6 +2349,298 @@ def hpdb_query_by_zip(
         include_trunk_sites=include_trunk_sites,
         include_trunk_site_frequencies=include_trunk_site_frequencies,
     )
+
+
+@app.get("/hpdb/static-map/by-zip", include_in_schema=False)
+def static_map_by_zip(
+    zip: str,
+    radius_miles: float = Query(25.0, ge=1.0, le=100.0, description="Radius in miles to show around the ZIP center"),
+    max_markers: int = Query(50, ge=1, le=200, description="Max tower markers to place"),
+    db: sqlite3.Connection = Depends(get_conn),
+):
+    """
+    Generate a static PNG map (OpenStreetMap tiles) centered on the ZIP, with nearby tower markers.
+    Output is locked to 1000x1000 pixels to avoid excessive tile requests.
+    """
+    width = height = 1000  # hard cap to avoid abusing OSM tiles
+
+    # Simple ZIP+radius cache to minimize tile fetches
+    cache_dir = os.path.join(STATIC_DIR, "cache", "zip-maps")
+    os.makedirs(cache_dir, exist_ok=True)
+    safe_zip = "".join(ch for ch in str(zip) if ch.isalnum())
+    safe_radius = f"{float(radius_miles):.1f}".replace(".", "_")
+    cache_path = os.path.join(cache_dir, f"{safe_zip}_{safe_radius}.png")
+    if os.path.exists(cache_path):
+        try:
+            with open(cache_path, "rb") as f:
+                cached = f.read()
+            # ensure watermark/compression even on legacy cache entries
+            cached = _finalize_png_bytes(cached)
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(cached)
+            except Exception:
+                pass
+            return Response(content=cached, media_type="image/png")
+        except Exception:
+            pass
+    zipdb = load_zip_db_full()
+    if zip not in zipdb:
+        raise HTTPException(status_code=404, detail="ZIP not found in zip database")
+    meta = zipdb[zip]
+    lat = meta.get("lat")
+    lon = meta.get("lon")
+    if lat is None or lon is None:
+        raise HTTPException(status_code=404, detail="ZIP missing lat/lon")
+
+    data = hpdb_query_near_point_impl(
+        db=db,
+        lat=float(lat),
+        lon=float(lon),
+        radius_miles=float(radius_miles),
+        include_talkgroups=False,
+        include_trunk_site_frequencies=False,
+        limit_sites=max_markers,
+    )
+
+    markers: List[str] = []
+    marker_points: List[Tuple[float, float]] = []
+    marker_labels: List[Tuple[float, float, str]] = []
+    seen = set()
+    for sys in data.trunked or []:
+        for site in sys.sites or []:
+            if site.lat is None or site.lon is None:
+                continue
+            key = (round(site.lat, 5), round(site.lon, 5))
+            if key in seen:
+                continue
+            seen.add(key)
+            markers.append(f"{site.lat:.6f},{site.lon:.6f},lightblue1")
+            marker_points.append((site.lat, site.lon))
+            marker_labels.append((site.lat, site.lon, site.site_name or f"Site {site.site_id}"))
+            if len(markers) >= max_markers:
+                break
+        if len(markers) >= max_markers:
+            break
+
+    zoom = _approx_zoom(float(lat), float(radius_miles), width_px=width)
+    base_w, base_h = width, height  # locked extent and output size
+
+    def _recompress_png_bytes(buf: bytes) -> bytes:
+        return _finalize_png_bytes(buf)
+
+    def overlay_if_ok(base_bytes: bytes) -> bytes | None:
+        # treat tiny responses as failures
+        if not base_bytes or len(base_bytes) < 1024:
+            return None
+        try:
+            return _draw_labels_on_image(
+                base_bytes,
+                float(lat),
+                float(lon),
+                zoom,
+                base_w,
+                base_h,
+                marker_labels,
+                extent_width=base_w,
+                extent_height=base_h,
+            )
+        except Exception:
+            return None
+
+    # Primary: render base via local OSM tiles, then overlay
+    try:
+        base = _render_osm_static(float(lat), float(lon), zoom, base_w, base_h, [])
+        labeled = overlay_if_ok(base)
+        if labeled:
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(_recompress_png_bytes(labeled))
+            except Exception:
+                pass
+            return Response(content=_recompress_png_bytes(labeled), media_type="image/png")
+    except Exception:
+        pass
+
+    # Next: render base via py-staticmaps (no markers), then overlay
+    try:
+        base = _render_staticmaps_base(float(lat), float(lon), zoom, base_w, base_h)
+        labeled = overlay_if_ok(base)
+        if labeled:
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(_recompress_png_bytes(labeled))
+            except Exception:
+                pass
+            return Response(content=_recompress_png_bytes(labeled), media_type="image/png")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Next: fetch staticmap.de (no markers) and overlay
+    url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom={zoom}&size={base_w}x{base_h}"
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "CodePlug-PB/0.1 static-map"})
+        if resp.status_code == 200 and resp.content:
+            labeled = overlay_if_ok(resp.content)
+            if labeled:
+                try:
+                    with open(cache_path, "wb") as f:
+                        f.write(_recompress_png_bytes(labeled))
+                except Exception:
+                    pass
+                return Response(content=_recompress_png_bytes(labeled), media_type="image/png")
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(_recompress_png_bytes(resp.content))
+            except Exception:
+                pass
+            return Response(content=_recompress_png_bytes(resp.content), media_type="image/png")
+    except Exception:
+        pass
+
+    # Fallback: py-staticmaps with labels (full render)
+    try:
+        base = _render_staticmaps_with_labels(float(lat), float(lon), zoom, base_w, base_h, marker_labels)
+        labeled = overlay_if_ok(base) or base
+        if labeled:
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(_recompress_png_bytes(labeled))
+            except Exception:
+                pass
+            return Response(content=_recompress_png_bytes(labeled), media_type="image/png")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Final attempt: staticmap.de with markers (no overlay) so at least a map shows
+    url_markers = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom={zoom}&size={base_w}x{base_h}"
+    if markers:
+        url_markers += "&markers=" + "|".join(markers)
+    try:
+        resp = requests.get(url_markers, timeout=10, headers={"User-Agent": "CodePlug-PB/0.1 static-map"})
+        if resp.status_code == 200 and resp.content and len(resp.content) >= 4096:
+            try:
+                with open(cache_path, "wb") as f:
+                    f.write(_recompress_png_bytes(resp.content))
+            except Exception:
+                pass
+            return Response(content=_recompress_png_bytes(resp.content), media_type="image/png")
+    except Exception:
+        pass
+
+    # Last resort: 1x1 transparent PNG so downstream ZIPs are never empty
+    fallback_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15"
+        b"\xc4\x89\x00\x00\x00\x0cIDAT\x08\xd7c```\x00\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    return Response(content=fallback_png, media_type="image/png")
+
+
+@app.get("/hpdb/static-map-simple/by-zip", include_in_schema=False)
+def static_map_simple_by_zip(
+    zip: str,
+    radius_miles: float = Query(25.0, ge=0.1, description="Radius in miles to show around the ZIP center"),
+    width: int = Query(640, ge=128, le=2048),
+    height: int = Query(640, ge=128, le=2048),
+    max_markers: int = Query(50, ge=1, le=200),
+    db: sqlite3.Connection = Depends(get_conn),
+):
+    """
+    Old-style static map: OSM tiles + blue dots, no labels.
+    """
+    zipdb = load_zip_db_full()
+    if zip not in zipdb:
+        raise HTTPException(status_code=404, detail="ZIP not found in zip database")
+    meta = zipdb[zip]
+    lat = meta.get("lat")
+    lon = meta.get("lon")
+    if lat is None or lon is None:
+        raise HTTPException(status_code=404, detail="ZIP missing lat/lon")
+
+    data = hpdb_query_near_point_impl(
+        db=db,
+        lat=float(lat),
+        lon=float(lon),
+        radius_miles=float(radius_miles),
+        include_talkgroups=False,
+        include_trunk_site_frequencies=False,
+        limit_sites=max_markers,
+    )
+
+    markers: List[str] = []
+    marker_points: List[Tuple[float, float]] = []
+    marker_labels: List[Tuple[float, float, str]] = []
+    seen = set()
+    for sys in data.trunked or []:
+        for site in sys.sites or []:
+            if site.lat is None or site.lon is None:
+                continue
+            key = (round(site.lat, 5), round(site.lon, 5))
+            if key in seen:
+                continue
+            seen.add(key)
+            markers.append(f"{site.lat:.6f},{site.lon:.6f},blue")
+            marker_points.append((site.lat, site.lon))
+            marker_labels.append((site.lat, site.lon, site.site_name or f"Site {site.site_id}"))
+            if len(markers) >= max_markers:
+                break
+        if len(markers) >= max_markers:
+            break
+
+    zoom = _approx_zoom(float(lat), float(radius_miles), width_px=width)
+
+    def overlay_if_ok(base_bytes: bytes) -> bytes | None:
+        if not base_bytes or len(base_bytes) < 1024:
+            return None
+        try:
+            return _draw_labels_on_image(base_bytes, float(lat), float(lon), zoom, width, height, marker_labels)
+        except Exception:
+            return None
+
+    # Try local OSM tiles as base + labels
+    try:
+        base = _render_osm_static(float(lat), float(lon), zoom, width, height, [])
+        if base and len(base) >= 1024:
+            labeled = overlay_if_ok(base)
+            if labeled:
+                return Response(content=labeled, media_type="image/png")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Try staticmap.de base (no markers) and overlay
+    url = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom={zoom}&size={width}x{height}"
+    try:
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "CodePlug-PB/0.1 static-map"})
+        if resp.status_code == 200 and resp.content and len(resp.content) >= 4096:
+            labeled = overlay_if_ok(resp.content)
+            if labeled:
+                return Response(content=labeled, media_type="image/png")
+    except Exception:
+        pass
+
+    # Try staticmap.de with markers (no overlay) last
+    url_markers = f"https://staticmap.openstreetmap.de/staticmap.php?center={lat},{lon}&zoom={zoom}&size={width}x{height}"
+    if markers:
+        url_markers += "&markers=" + "|".join(markers)
+    try:
+        resp = requests.get(url_markers, timeout=10, headers={"User-Agent": "CodePlug-PB/0.1 static-map"})
+        if resp.status_code == 200 and resp.content and len(resp.content) >= 4096:
+            return Response(content=resp.content, media_type="image/png")
+    except Exception:
+        pass
+
+    # Last resort
+    fallback_png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15"
+        b"\xc4\x89\x00\x00\x00\x0cIDAT\x08\xd7c```\x00\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    return Response(content=fallback_png, media_type="image/png")
 
 
 @app.get("/health")

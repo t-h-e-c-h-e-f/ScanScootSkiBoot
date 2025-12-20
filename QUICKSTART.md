@@ -99,6 +99,14 @@ ZIP + radius search:
 curl "http://localhost:16444/hpdb/query/by-zip?zip=64468&radius_miles=25"
 ```
 
+Interactive map + wizards:
+
+- Open `http://<host>:16444/map` to pick a state; counties live at `/state/<ABBR>/<county>`.
+- County popup shows conventional + trunked data and offers downloads:
+  - Trunk Recorder ZIP (config + talkgroups/channels CSV; filenames prefixed `County_State_`)
+  - SDRTrunk playlist.xml
+  - OP25 config ZIP (JSON + optional TG whitelist TSV; templates for P25/DMR/SmartNet)
+
 ## 6) Update to a newer MasterHpdb
 
 ### Browser

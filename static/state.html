@@ -1,0 +1,1853 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CodePlug-PB · Counties</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+
+        body{
+            margin:0;
+            font-family: "Inter var", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            background:#060911;
+            color:#e6edf3;
+            display:flex;
+            flex-direction:column;
+            min-height:100vh;
+            overflow:hidden;
+        }
+
+        header{
+            padding:14px 18px;
+            border-bottom:1px solid rgba(255,255,255,.08);
+            display:flex;
+            gap:12px;
+            align-items:center;
+            flex-wrap:wrap;
+            position:relative;
+        }
+
+        a.btn{
+            display:inline-block;
+            text-decoration:none;
+            background: rgba(255,255,255,.08);
+            color:#e6edf3;
+            border:1px solid rgba(255,255,255,.14);
+            border-radius:10px;
+            padding:8px 10px;
+        }
+        a.btn:hover{ background: rgba(255,255,255,.12); }
+
+        h1{ margin:0; font-size:18px; font-weight:680; letter-spacing:-0.01em; }
+        .hint{ opacity:.78; font-size:13px; margin:0; }
+
+        #wrap{
+            flex:1 1 auto;
+            min-height:0;
+            display:grid;
+            grid-template-columns: 360px 1fr;
+            gap:12px;
+            padding:12px;
+        }
+
+        @media (max-width: 980px){
+            #wrap{ grid-template-columns: 1fr; grid-template-rows: 260px 1fr; }
+        }
+
+        #panel{
+            background: rgba(255,255,255,.03);
+            border:1px solid rgba(255,255,255,.08);
+            border-radius:16px;
+            overflow:hidden;
+            display:flex;
+            flex-direction:column;
+            min-height:0;
+            box-shadow: 0 18px 42px rgba(0,0,0,.35);
+        }
+        #panelTop{
+            padding:12px;
+            border-bottom:1px solid rgba(255,255,255,.08);
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+        }
+        .search{
+            width:100%;
+            background: rgba(255,255,255,.06);
+            border:1px solid rgba(255,255,255,.12);
+            color:#e6edf3;
+            border-radius:12px;
+            padding:10px 12px;
+            outline:none;
+            font-size:14px;
+        }
+        .search:focus{
+            border-color: rgba(99,179,237,.65);
+            box-shadow: 0 0 0 3px rgba(99,179,237,.12);
+        }
+        #list{
+            padding:8px;
+            overflow:auto;
+            min-height:0;
+        }
+        .item{
+            width:100%;
+            border:1px solid rgba(255,255,255,.08);
+            background: rgba(255,255,255,.02);
+            color:#e6edf3;
+            border-radius:12px;
+            padding:10px 10px;
+            margin:6px 0;
+            cursor:pointer;
+            text-align:left;
+            font-size:14px;
+            display:flex;
+            justify-content:space-between;
+            gap:10px;
+            transition: background 120ms ease, border-color 120ms ease;
+        }
+        .item:hover{ background: rgba(255,255,255,.06); }
+        .item.is-active{
+            border-color: rgba(99,179,237,.55);
+            background: rgba(99,179,237,.10);
+        }
+        .meta{ opacity:.65; font-size:12px; white-space:nowrap; }
+
+        #map{
+            background: radial-gradient(circle at 20% 20%, rgba(99,179,237,.08), transparent 32%),
+                        radial-gradient(circle at 80% 0%, rgba(45,212,191,.08), transparent 40%),
+                        rgba(255,255,255,.03);
+            border:1px solid rgba(255,255,255,.08);
+            border-radius:16px;
+            overflow:hidden;
+            min-height:0;
+            position:relative;
+            box-shadow: 0 18px 42px rgba(0,0,0,.35);
+        }
+        #map svg{
+            width:100%;
+            height:100%;
+            display:block;
+            touch-action:none;
+            user-select:none;
+            -webkit-user-select:none;
+        }
+
+        .county{
+            fill: rgba(255,255,255,.08);
+            stroke: rgba(255,255,255,.14);
+            stroke-width:.7;
+            cursor:pointer;
+            vector-effect: non-scaling-stroke;
+            transition: fill 120ms ease;
+        }
+        .county:hover{ fill: rgba(255,255,255,.14); }
+        .county.is-active{ fill: rgba(99,179,237,.16); }
+
+        .state-outline{
+            fill:none;
+            stroke: rgba(99,179,237,.75);
+            stroke-width:1.6;
+            pointer-events:none;
+            vector-effect: non-scaling-stroke;
+        }
+
+        /* Cities overlay */
+        .city-dot{
+            fill: rgba(230,237,243,.92);
+            stroke: rgba(0,0,0,.35);
+            stroke-width: 1;
+            vector-effect: non-scaling-stroke;
+            pointer-events: none;
+        }
+        .city-label{
+            font-size: 12px;
+            fill: rgba(230,237,243,.95);
+            paint-order: stroke fill;
+            stroke: rgba(11,15,20,.90);
+            stroke-width: 3;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+        @media (max-width: 980px){
+            .city-label{ font-size: 11px; }
+        }
+
+        .err{
+            position:absolute;
+            left:12px; right:12px; bottom:10px;
+            opacity:.85;
+            font-size:13px;
+            pointer-events:none;
+        }
+
+        /* popup */
+        .overlay{ position:fixed; inset:0; background: rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; padding:18px; z-index:50; }
+        .overlay[aria-hidden="false"]{ display:flex; }
+        .popup{ width:min(640px, 92vw); max-height:90vh; overflow:auto; background:#0f1520; border:1px solid rgba(255,255,255,.14); border-radius:16px; box-shadow:0 16px 60px rgba(0,0,0,.5); padding:14px 14px 12px; }
+        .popup-top{ display:flex; align-items:start; justify-content:space-between; gap:12px; }
+        .popup h2{ margin:0; font-size:16px; }
+        .popup p{ margin:8px 0 0; opacity:.85; font-size:13px; line-height:1.35; }
+        .xbtn{ background: rgba(255,255,255,.08); color:#e6edf3; border:1px solid rgba(255,255,255,.14); border-radius:12px; padding:6px 10px; cursor:pointer; }
+        .xbtn:hover{ background: rgba(255,255,255,.12); }
+        .badge{ display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); margin-right:6px; margin-top:6px; opacity:.95; }
+        .muted{ color:#a6b3c6; }
+        .stats-row{ display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:8px; margin-top:10px; }
+        .stat{ background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px 12px; }
+        .stat .label{ font-size:12px; letter-spacing:0.04em; color:#9fb1d4; text-transform:uppercase; }
+        .stat .value{ font-size:20px; font-weight:800; margin-top:4px; }
+        .error{ color:#ffbdbd; }
+        .sys-list{ display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+        .sys-btn{ width:100%; text-align:left; border:1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.02); color:#e6edf3; border-radius:10px; padding:10px 10px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+        .sys-btn:hover{ background: rgba(255,255,255,.06); }
+        .sys-btn.is-active{ border-color: rgba(99,179,237,.55); background: rgba(99,179,237,.10); }
+        .sys-detail{ margin-top:10px; padding:10px 12px; background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08); border-radius:12px; }
+        .sys-detail h3{ margin:0 0 6px; font-size:15px; }
+        .sys-detail .site{ margin-top:8px; padding:8px 8px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background: rgba(255,255,255,.02); }
+        .sys-detail table{ width:100%; border-collapse: collapse; font-size:12px; color:#e6edf3; }
+        .sys-detail th, .sys-detail td{ padding:4px 6px; border-bottom:1px solid rgba(255,255,255,.06); text-align:left; }
+        .sys-detail th{ color:#9fb1d4; letter-spacing:0.02em; }
+        .site-header{ display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; }
+        .site-body{ margin-top:6px; max-height: 260px; overflow:auto; }
+        .site.is-collapsed .site-body{ display:none; }
+        .site-toggle{ background: none; border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:8px; padding:4px 8px; font-size:12px; cursor:pointer; }
+        .site-toggle:hover{ border-color: rgba(99,179,237,.55); }
+        .conventional-block { margin-bottom: 12px; }
+        .conventional-header { display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; }
+        .conventional-body { margin-top:8px; max-height: 260px; overflow:auto; }
+        .conventional.is-collapsed .conventional-body { display:none; }
+        .conv-table { width:100%; border-collapse:collapse; font-size:12px; color:#e6edf3; }
+        .conv-table th, .conv-table td { padding:4px 6px; border-bottom:1px solid rgba(255,255,255,.06); text-align:left; }
+        .conv-table th { color:#9fb1d4; letter-spacing:0.02em; }
+        .wizard{ margin-top:12px; padding:12px; border:1px solid rgba(255,255,255,.1); border-radius:12px; background: rgba(255,255,255,.02); }
+        .wizard h4{ margin:0 0 6px; }
+        .form-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:8px; }
+        .field{ display:flex; flex-direction:column; gap:4px; font-size:13px; color:#cfd7e6; }
+        .field input, .field select{ background: rgba(10,16,26,.9); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 10px; font-size:13px; width:100%; }
+        .field input:focus, .field select:focus{ border-color: rgba(99,179,237,.65); outline:none; box-shadow:0 0 0 3px rgba(99,179,237,.12); }
+        .field select option{ background:#0b0f14; color:#e6edf3; }
+        .wizard-actions{ margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+        .wizard button{ background: rgba(99,179,237,.16); color:#e6edf3; border:1px solid rgba(99,179,237,.45); border-radius:10px; padding:10px 12px; cursor:pointer; font-weight:700; }
+        .wizard button:hover{ background: rgba(99,179,237,.22); }
+        .chip{ display:inline-flex; gap:6px; align-items:center; padding:4px 8px; border-radius:10px; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); font-size:12px; }
+        .wizard-tabs{ display:flex; gap:8px; margin-top:12px; }
+        .wizard-tab{ background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; }
+        .wizard-tab.is-active{ border-color: rgba(99,179,237,.55); background: rgba(99,179,237,.10); }
+        .menu-wrap{ position:relative; }
+        .menu-btn{ background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:700; display:inline-flex; gap:6px; align-items:center; }
+        .menu-panel{ position:absolute; top:calc(100% + 8px); left:0; width:260px; background:#0f1520; border:1px solid rgba(255,255,255,.14); border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:12px; display:none; z-index:60; }
+        .menu-panel h4{ margin:0 0 8px; }
+        .menu-panel .field input{ background: rgba(10,16,26,.9); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 10px; font-size:13px; width:100%; }
+        .menu-panel .actions{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+        .menu-panel button{ background: rgba(99,179,237,.16); border:1px solid rgba(99,179,237,.45); color:#e6edf3; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:700; text-align:left; }
+        .menu-panel button:hover{ background: rgba(99,179,237,.22); }
+        .menu-panel .link{ display:inline-block; margin-top:10px; text-decoration:none; padding:10px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color:#e6edf3; font-weight:700; text-align:center; }
+        .menu-panel .link:hover{ background: rgba(255,255,255,.08); }
+    </style>
+</head>
+<body>
+<header>
+    <div class="menu-wrap">
+        <button class="menu-btn" id="menuBtn" aria-expanded="false">☰ Menu</button>
+        <div class="menu-panel" id="menuPanel">
+            <h4>Zip Code (Radius)</h4>
+            <div class="field">
+                <label for="menuZip">ZIP code</label>
+                <input id="menuZip" placeholder="e.g. 90210" autocomplete="postal-code" />
+            </div>
+            <div class="field">
+                <label for="menuRadius">Radius (miles)</label>
+                <input id="menuRadius" type="number" min="1" value="25" />
+            </div>
+            <div class="actions">
+                <button type="button" data-zip-wizard="trunking">Trunk-Recorder Wizard</button>
+                <button type="button" data-zip-wizard="sdrtrunk">SDRTrunk Wizard</button>
+                <button type="button" data-zip-wizard="op25">OP25 Wizard</button>
+            </div>
+            <a class="link" href="/about">About CodePlug-PB</a>
+        </div>
+    </div>
+    <a class="btn" href="/map">← Back to states</a>
+    <div>
+        <h1 id="title">Counties</h1>
+        <p class="hint" id="hint">Click a county (map or list) to see CodePlug-PB radio data.</p>
+    </div>
+</header>
+
+<div id="wrap">
+    <aside id="panel">
+        <div id="panelTop">
+            <input id="q" class="search" placeholder="Search counties…" autocomplete="off" />
+            <p class="hint" style="margin:0;">Hover list ↔ highlights on map.</p>
+        </div>
+        <div id="list"></div>
+    </aside>
+
+    <main id="map">
+        <div id="err" class="err"></div>
+    </main>
+</div>
+
+<div class="overlay" id="overlay" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="popup" role="document">
+        <div class="popup-top">
+            <div>
+                <h2 id="popupTitle">County</h2>
+                <p id="popupBody">…</p>
+            </div>
+            <button class="xbtn" id="btnClose" aria-label="Close popup">✕</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/d3.min.js"></script>
+<script src="/static/js/topojson-client.min.js"></script>
+
+<script>
+    // Unprojected TopoJSON (lon/lat). We apply a north-up projection ourselves.
+    const TOPO_URL = "/static/data/counties-10m.json";
+
+    // Cities source (Natural Earth “populated places”, GeoJSON) — hosted locally
+    const CITIES_URL = "/static/data/ne_10m_populated_places_simple.geojson";
+    const MAX_CITY_LABELS = 10;     // how many to label per state
+    const CITY_DOT_R = 3.0;         // point radius
+    const CITY_MIN_POP = 0;         // set e.g. 100000 to hide smaller places
+
+    // label collision tuning
+    const LABEL_MARGIN = 2;         // extra pixels around each label when collision testing
+    const LABEL_SAFE_PAD = 10;      // keep labels within viewport inset (prevents clipping)
+
+    const W = 975, H = 610, PAD = 18;
+
+    const STATE_NAMES = {
+        "01":"Alabama","02":"Alaska","04":"Arizona","05":"Arkansas","06":"California","08":"Colorado",
+        "09":"Connecticut","10":"Delaware","11":"District of Columbia","12":"Florida","13":"Georgia",
+        "15":"Hawaii","16":"Idaho","17":"Illinois","18":"Indiana","19":"Iowa","20":"Kansas","21":"Kentucky",
+        "22":"Louisiana","23":"Maine","24":"Maryland","25":"Massachusetts","26":"Michigan","27":"Minnesota",
+        "28":"Mississippi","29":"Missouri","30":"Montana","31":"Nebraska","32":"Nevada","33":"New Hampshire",
+        "34":"New Jersey","35":"New Mexico","36":"New York","37":"North Carolina","38":"North Dakota",
+        "39":"Ohio","40":"Oklahoma","41":"Oregon","42":"Pennsylvania","44":"Rhode Island","45":"South Carolina",
+        "46":"South Dakota","47":"Tennessee","48":"Texas","49":"Utah","50":"Vermont","51":"Virginia",
+        "53":"Washington","54":"West Virginia","55":"Wisconsin","56":"Wyoming"
+    };
+
+    const STATE_ABBR = {
+        "01":"AL","02":"AK","04":"AZ","05":"AR","06":"CA","08":"CO","09":"CT","10":"DE","11":"DC","12":"FL",
+        "13":"GA","15":"HI","16":"ID","17":"IL","18":"IN","19":"IA","20":"KS","21":"KY","22":"LA","23":"ME",
+        "24":"MD","25":"MA","26":"MI","27":"MN","28":"MS","29":"MO","30":"MT","31":"NE","32":"NV","33":"NH",
+        "34":"NJ","35":"NM","36":"NY","37":"NC","38":"ND","39":"OH","40":"OK","41":"OR","42":"PA","44":"RI",
+        "45":"SC","46":"SD","47":"TN","48":"TX","49":"UT","50":"VT","51":"VA","53":"WA","54":"WV","55":"WI","56":"WY"
+    };
+    const STATE_ABBR_TO_FIPS = Object.fromEntries(Object.entries(STATE_ABBR).map(([f, a]) => [String(a).toUpperCase(), f]));
+
+    const params = new URLSearchParams(window.location.search);
+    const seoStateAbbr = (document.body.dataset.stateAbbr || "").toUpperCase();
+    const seoCountyName = document.body.dataset.countyName || "";
+    let stateFips = String(params.get("state") || "").padStart(2,"0");
+    if ((!stateFips || stateFips === "00") && seoStateAbbr){
+        stateFips = STATE_ABBR_TO_FIPS[seoStateAbbr] || "";
+    }
+    const initialZip = (params.get("zip") || "").trim();
+    const initialRadius = Number(params.get("radius") || params.get("radius_miles") || "0");
+    const initialWizard = (params.get("wizard") || "").toLowerCase();
+    let lastZipLookup = { zip: null, radius: null };
+
+    const titleEl = document.getElementById("title");
+    const hintEl  = document.getElementById("hint");
+    const errEl   = document.getElementById("err");
+    const listEl  = document.getElementById("list");
+    const qEl     = document.getElementById("q");
+    const menuBtn = document.getElementById("menuBtn");
+    const menuPanel = document.getElementById("menuPanel");
+    const menuZip = document.getElementById("menuZip");
+    const menuRadius = document.getElementById("menuRadius");
+
+    const overlay = document.getElementById("overlay");
+    const btnClose= document.getElementById("btnClose");
+    const popupTitle = document.getElementById("popupTitle");
+    const popupBody  = document.getElementById("popupBody");
+    let lastCountyData = null;
+    let activeSystemId = null;
+    let currentCountyFips = null;
+
+    function showErr(msg){ errEl.textContent = msg; }
+    function escapeHtml(s){
+        return String(s || "")
+            .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+            .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+    }
+    function normCountyName(s){
+        return String(s || "")
+            .toLowerCase()
+            .replace(/county$/i, "")
+            .replace(/[^a-z0-9]/gi, "");
+    }
+
+    function renderStats(data){
+        const conv = data?.conventional?.length || 0;
+        const trunk = data?.trunked?.length || 0;
+        const tgs = data?.talkgroups?.length || 0;
+        return `
+          <div class="stats-row">
+            <div class="stat"><div class="label">Conventional</div><div class="value">${conv}</div></div>
+            <div class="stat"><div class="label">Trunked Systems</div><div class="value">${trunk}</div></div>
+            <div class="stat"><div class="label">Talkgroups</div><div class="value">${tgs}</div></div>
+          </div>
+        `;
+    }
+
+    function renderBriefData(data){
+        if (!data) return "<p class='error'>No data returned.</p>";
+        const conv = (data.conventional || []).slice(0,5).map(r => `<li>${escapeHtml(r.department || "")} — ${escapeHtml(r.channel || "")}</li>`).join("");
+        const trunk = (data.trunked || []).slice(0,3).map(sys => `<li>${escapeHtml(sys.system_name || "System " + sys.trunk_id)}</li>`).join("");
+        return `
+          ${renderStats(data)}
+          <div style="margin-top:10px;">
+            <div class="badge">Center: ${escapeHtml(data.county?.county_name || "")}, ${escapeHtml(data.county?.state_abbrev || "")}</div>
+          </div>
+          <div style="margin-top:12px;">
+            <div class="hint" style="margin:0 0 6px;">Sample conventional channels</div>
+            <ul class="muted" style="margin:0 0 10px 18px; padding:0;">${conv || "<li class='muted'>None listed</li>"}</ul>
+            <div class="hint" style="margin:0 0 6px;">Trunked systems</div>
+            <ul class="muted" style="margin:0 0 0 18px; padding:0;">${trunk || "<li class='muted'>None listed</li>"}</ul>
+          </div>
+        `;
+    }
+
+    function formatFreq(row){
+        if (row.frequency_mhz != null) return `${Number(row.frequency_mhz).toFixed(3)} MHz`;
+        if (row.frequency_hz != null) return `${Number(row.frequency_hz / 1e6).toFixed(3)} MHz`;
+        return "-";
+    }
+
+    function renderConventionalHTML(data){
+        const rows = data?.conventional || [];
+        if (!rows.length) return `<div class="muted">No conventional frequencies for this county.</div>`;
+        const take = rows.slice(0, 50);
+        const more = rows.length - take.length;
+        const body = take.map(r => `
+          <tr>
+            <td>${escapeHtml(r.department || "")}</td>
+            <td>${escapeHtml(r.channel || "")}</td>
+            <td>${formatFreq(r)}</td>
+            <td>${escapeHtml(r.modulation || "")}</td>
+            <td>${escapeHtml(r.tone || r.nac || r.color_code || r.ran || "")}</td>
+          </tr>`).join("");
+        return `
+          <div class="conventional-block">
+            <div class="conventional is-collapsed" id="conventionalBlock">
+              <div class="conventional-header">
+                <h3 style="margin:0;">Conventional Frequencies (${rows.length})</h3>
+                <button class="site-toggle" id="convToggle">Expand</button>
+              </div>
+              <div class="conventional-body">
+                <table class="conv-table">
+                  <thead><tr><th>Department</th><th>Channel</th><th>Freq</th><th>Mode</th><th>Tone/NAC</th></tr></thead>
+                  <tbody>${body}</tbody>
+                </table>
+                ${more > 0 ? `<div class="muted" style="margin-top:4px;">+${more} more not shown</div>` : ""}
+              </div>
+            </div>
+          </div>
+        `;
+    }
+
+    function renderSystemListHTML(data){
+        const systems = data?.trunked || [];
+        if (systems.length === 0){
+            return `<p class="muted" style="margin:0;">No trunked systems for this county.</p>`;
+        }
+        return systems.map((s) => {
+            const isActive = activeSystemId === s.trunk_id;
+            return `
+              <button class="sys-btn ${isActive ? "is-active" : ""}" data-sys-id="${s.trunk_id}">
+                <span>${escapeHtml(s.system_name || `System ${s.trunk_id}`)}</span>
+                <span class="meta">${escapeHtml(s.system_type || "")}</span>
+              </button>
+            `;
+        }).join("");
+    }
+
+    function renderSystemDetailHTML(data){
+        if (!data || !data.trunked || data.trunked.length === 0){
+            return `<div class="sys-detail"><p class="muted" style="margin:0;">Select a system to see frequencies.</p></div>`;
+        }
+        const sys = data.trunked.find((s) => s.trunk_id === activeSystemId) || data.trunked[0];
+        if (!sys) return `<div class="sys-detail"><p class="muted" style="margin:0;">Select a system to see frequencies.</p></div>`;
+
+        const sites = sys.sites || [];
+        const siteHtml = sites.map((site, idx) => {
+            const freqsAll = site.frequencies || [];
+            const freqs = freqsAll.slice(0, 12); // clamp to first 12 rows for readability
+            const more = freqsAll.length - freqs.length;
+            const freqRows = freqs.map((f) => `
+              <tr>
+                <td>${formatFreq(f)}</td>
+                <td>${escapeHtml(f.channel_name || "")}</td>
+                <td>${escapeHtml(f.lcn1 || f.lcn2 || "")}</td>
+                <td>${escapeHtml(f.ran || "")}</td>
+              </tr>
+            `).join("");
+            const siteId = `site-${sys.trunk_id}-${idx}`;
+            return `
+              <div class="site is-collapsed" data-site-id="${siteId}">
+                <div class="site-header">
+                  <div>
+                    <strong>${escapeHtml(site.site_name || `Site ${site.site_id}`)}</strong>
+                    ${site.distance_miles ? `<span class="meta" style="margin-left:6px;">${Number(site.distance_miles).toFixed(1)} mi</span>` : ""}
+                    <span class="meta" style="margin-left:6px;">${freqsAll.length} freqs</span>
+                  </div>
+                  <button class="site-toggle" data-site-id="${siteId}">Expand</button>
+                </div>
+                <div class="site-body">
+                  <table style="margin-top:6px;">
+                    <thead><tr><th>Freq</th><th>Channel</th><th>LCN</th><th>RAN/NAC</th></tr></thead>
+                    <tbody>${freqRows || `<tr><td colspan="4" class="muted">No site frequencies</td></tr>`}</tbody>
+                  </table>
+                  ${more > 0 ? `<div class="muted" style="margin-top:4px;">+${more} more not shown</div>` : ""}
+                </div>
+              </div>
+            `;
+        }).join("");
+
+        return `
+          <div class="sys-detail">
+            <h3>${escapeHtml(sys.system_name || `System ${sys.trunk_id}`)}</h3>
+            <div class="muted" style="margin-bottom:6px;">${escapeHtml(sys.system_type || "")}</div>
+            ${siteHtml || `<p class="muted" style="margin:0;">No sites for this system.</p>`}
+          </div>
+        `;
+    }
+
+    function renderFullPopup(data){
+        const listHtml = renderSystemListHTML(data);
+        const detailHtml = renderSystemDetailHTML(data);
+        return `
+          ${renderStats(data)}
+          <div style="margin-top:12px;">${renderConventionalHTML(data)}</div>
+          <div style="margin-top:12px;">
+            <div class="hint" style="margin:0 0 6px;">Trunked systems (click to view frequencies)</div>
+            <div class="sys-list" id="sysList">${listHtml}</div>
+            <div id="sysDetail">${detailHtml}</div>
+          </div>
+          <div class="wizard-tabs">
+            <button class="wizard-tab is-active" data-wizard="trunkrecorder">Trunk Recorder</button>
+            <button class="wizard-tab" data-wizard="sdrtrunk">SDRTrunk</button>
+            <button class="wizard-tab" data-wizard="op25">OP25</button>
+          </div>
+          <div id="wizard-trunkrecorder">${renderWizardHTML(data)}</div>
+          <div id="wizard-sdrtrunk" class="wizard" style="display:none;">
+            <h4>SDRTrunk Playlist Wizard</h4>
+            <p class="hint" style="margin:0 0 8px;">Build a simple playlist.xml for the selected trunked system.</p>
+            <div class="form-grid">
+              <label class="field">Playlist name<input id="sdrName" placeholder="County Playlist" /></label>
+              <label class="field">Preferred tuner<input id="sdrTuner" placeholder="rtl=0 (optional)" /></label>
+              <label class="field">Analog squelch<input id="sdrSquelch" type="number" value="20" /></label>
+              <label class="field">Analog bandwidth<input id="sdrBandwidth" placeholder="12500" /></label>
+            </div>
+            <div class="wizard-actions">
+              <label class="chip"><input type="checkbox" id="sdrIncludeConventional" checked /> Include conventional</label>
+              <label class="chip"><input type="checkbox" id="sdrIncludeTalkgroups" checked /> Include talkgroups</label>
+            </div>
+            <div id="sdrMsg" class="hint" style="margin-top:6px;"></div>
+            <button id="btnDownloadSdr">Download ZIP</button>
+          </div>
+          <div id="wizard-op25" class="wizard" style="display:none;">
+            <h4>OP25 Config Wizard</h4>
+            <p class="hint" style="margin:0 0 8px;">Generate an OP25 JSON config for the selected trunked system.</p>
+            <div class="form-grid">
+              <label class="field">Template
+                <select id="op25Template">
+                  <option value="p25_single_rtl">P25 (single RTL)</option>
+                  <option value="p25_two_rtl">P25 (two RTLs)</option>
+                  <option value="p25_airspy">P25 (Airspy)</option>
+                  <option value="p25_conventional">P25 Conventional</option>
+                  <option value="dmr_rtl">DMR (RTL)</option>
+                  <option value="dmr_airspy">DMR (Airspy)</option>
+                  <option value="smartnet">SmartNet</option>
+                </select>
+              </label>
+              <label class="field">Config name<input id="op25Name" placeholder="OP25 System" /></label>
+              <label class="field">Device args<input id="op25Device" placeholder="rtl=0" /></label>
+              <label class="field">Sample rate<input id="op25Rate" type="number" value="1000000" /></label>
+              <label class="field">Gain<input id="op25Gain" placeholder="LNA:39" /></label>
+              <label class="field">Control freq list<input id="op25Cclist" placeholder="773.84375,774.84375" /></label>
+              <label class="field">SysID (hex)<input id="op25Sysid" placeholder="0x000" /></label>
+              <label class="field">WACN (hex)<input id="op25Wacn" placeholder="0x00000" /></label>
+              <label class="field">NAC (hex)<input id="op25Nac" placeholder="0x0" /></label>
+              <label class="field">UDP dest<input id="op25Udp" placeholder="udp://127.0.0.1:23456" /></label>
+              <label class="field">TG whitelist file<input id="op25Wlist" placeholder="stream0.wlist" /></label>
+            </div>
+            <div class="wizard-actions">
+              <label class="chip"><input type="checkbox" id="op25IncludeTalkgroups" checked /> Include talkgroup CSVs (whitelist)</label>
+            </div>
+            <div id="op25Msg" class="hint" style="margin-top:6px;"></div>
+            <button id="btnDownloadOp25">Download ZIP</button>
+          </div>
+        `;
+    }
+
+    function wireSystemClicks(data){
+        const sysBtns = popupBody.querySelectorAll("[data-sys-id]");
+        sysBtns.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                activeSystemId = Number(btn.getAttribute("data-sys-id"));
+                // re-render list + detail to update active state
+                popupBody.querySelector("#sysList").innerHTML = renderSystemListHTML(data);
+                popupBody.querySelector("#sysDetail").innerHTML = renderSystemDetailHTML(data);
+                wireSystemClicks(data);
+                wireWizard(data);
+                wireSiteToggles();
+                wireConvToggle();
+                wireWizardTabs(data);
+            });
+        });
+    }
+
+    function renderWizardHTML(data){
+        return `
+          <div class="wizard" id="wizardBox">
+            <h4>Trunk-Recorder Config Wizard</h4>
+            <p class="hint" style="margin:0 0 8px;">Answer a few questions, then download a ZIP with JSON + talkgroups/channels CSV.</p>
+            <div class="form-grid">
+              <label class="field">Driver<select id="wizDriver">
+                <option value="osmosdr">osmosdr (RTL-SDR/HackRF)</option>
+                <option value="uhd">uhd</option>
+                <option value="file">file</option>
+              </select></label>
+              <label class="field">Device<input id="wizDevice" placeholder="rtl=0" /></label>
+              <label class="field">Center frequency (Hz)<input id="wizCenter" type="number" /></label>
+              <label class="field">Sample rate<input id="wizRate" type="number" /></label>
+              <label class="field">Gain (dB)<input id="wizGain" type="number" /></label>
+              <label class="field">Talkgroups file<input id="wizTgFile" /></label>
+              <label class="field">Channels file<input id="wizChanFile" /></label>
+              <label class="field">Capture directory<input id="wizCaptureDir" placeholder="/var/trunking-recorder" /></label>
+            </div>
+            <div class="wizard-actions">
+              <label class="chip"><input type="checkbox" id="wizIncludeConventional" checked /> Include conventional channels</label>
+              <label class="chip"><input type="checkbox" id="wizIncludeTalkgroups" checked /> Include talkgroups</label>
+            </div>
+            <div id="wizMsg" class="hint" style="margin-top:6px;"></div>
+            <button id="btnDownloadConfig">Download ZIP</button>
+          </div>
+        `;
+    }
+
+    function csvEscape(str){
+        const s = String(str ?? "");
+        if (/[\",\\n]/.test(s)) return `"${s.replace(/\"/g, '\"\"')}"`;
+        return s;
+    }
+
+    function makeTalkgroupsCsv(data, trunkId){
+        const rows = (data.talkgroups || []).filter((tg) => tg.trunk_id === trunkId);
+        const header = "Decimal,Hex,Mode,Alpha Tag,Description,Tag,Category,Priority";
+        const body = rows.map((r) => {
+            const dec = r.tid;
+            const hex = Number(r.tid).toString(16);
+            const mode = "D";
+            const alpha = r.alpha_tag || r.talkgroup || `TG ${r.tid}`;
+            const desc = r.service || r.category || "";
+            const tag = r.service || "";
+            const cat = r.category || "";
+            const prio = r.number_tag || 1;
+            return [dec, hex, mode, alpha, desc, tag, cat, prio].map(csvEscape).join(",");
+        }).join("\n");
+        return `${header}\n${body}\n`;
+    }
+
+    function makeCountyStateTalkgroupsCsv(data){
+        const rows = (data.talkgroups || []).slice().sort((a,b) => {
+            if (a.trunk_id !== b.trunk_id) return a.trunk_id - b.trunk_id;
+            return a.tid - b.tid;
+        });
+        const header = "System,Decimal,Hex,Mode,Alpha Tag,Description,Tag,Category,Priority";
+        const body = rows.map((r) => {
+            const dec = r.tid;
+            const hex = Number(r.tid).toString(16);
+            const mode = "D";
+            const alpha = r.alpha_tag || r.talkgroup || `TG ${r.tid}`;
+            const desc = r.service || r.category || "";
+            const tag = r.service || "";
+            const cat = r.category || "";
+            const prio = r.number_tag || 1;
+            const sys = r.system_name || "";
+            return [sys, dec, hex, mode, alpha, desc, tag, cat, prio].map(csvEscape).join(",");
+        }).join("\n");
+        return `${header}\n${body}\n`;
+    }
+
+    function makeChannelsCsv(data){
+        const rows = data.conventional || [];
+        if (!rows.length) return "";
+        const header = "TG Number,Frequency,Tone,Alpha Tag,Description,Tag,Category,Enable";
+        const body = rows.map((r, idx) => {
+            const tg = idx + 1;
+            const freq = r.frequency_hz || Math.round((r.frequency_mhz || 0) * 1e6);
+            const tone = r.tone || r.nac || r.color_code || r.ran || "";
+            const alpha = r.channel || "";
+            const desc = r.department || "";
+            const tag = r.modulation || "";
+            const cat = r.department || "";
+            const enable = "True";
+            return [tg, freq, tone, alpha, desc, tag, cat, enable].map(csvEscape).join(",");
+        }).join("\n");
+        return `${header}\n${body}\n`;
+    }
+
+    function sanitizeShortName(name){
+        return String(name || "system").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24) || "system";
+    }
+
+    function sanitizePrefix(parts){
+        const cleaned = parts
+            .map((p) => (p || "").toString().trim())
+            .map((p) => p.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""))
+            .filter(Boolean);
+        return cleaned.join("_") + (cleaned.length ? "_" : "");
+    }
+
+    function computeControlChannels(sys){
+        const freqs = [];
+        (sys.sites || []).forEach((site) => {
+            (site.frequencies || []).forEach((f) => {
+                if (f.frequency_hz) freqs.push(f.frequency_hz);
+            });
+        });
+        const uniq = Array.from(new Set(freqs.map((f) => Math.round(f)))).sort((a,b) => a-b);
+        return uniq.slice(0, 8);
+    }
+
+    function computeCenter(sys){
+        const freqs = [];
+        (sys.sites || []).forEach((site) => (site.frequencies || []).forEach((f) => { if (f.frequency_hz) freqs.push(f.frequency_hz); }));
+        if (!freqs.length) return 857800000;
+        const avg = freqs.reduce((a,b) => a+b, 0) / freqs.length;
+        return Math.round(avg);
+    }
+
+    function buildConfigJson(fips, system, options, includeConv, includeTg, data){
+        const control = computeControlChannels(system);
+        const sysType = (system.system_type || "").toLowerCase();
+        const configSystems = [{
+            control_channels: control,
+            type: sysType || "p25",
+            talkgroupsFile: includeTg ? options.tgFile : undefined,
+            shortName: options.shortName,
+            modulation: sysType === "p25" ? "qpsk" : (sysType || "qpsk")
+        }];
+        if (includeConv && (data.conventional || []).length){
+            configSystems.push({
+                type: "conventional",
+                channels: (data.conventional || []).map((c) => c.frequency_hz || Math.round((c.frequency_mhz || 0) * 1e6)).filter(Boolean),
+                shortName: `${options.shortName}-conv`,
+                talkgroupsFile: options.chanFile,
+                callLog: true,
+                audioArchive: true,
+                squelch: -50
+            });
+        }
+        const cfg = {
+            ver: 2,
+            sources: [{
+                center: Number(options.center),
+                rate: Number(options.rate),
+                error: 0,
+                gain: Number(options.gain),
+                digitalRecorders: 4,
+                driver: options.driver,
+                device: options.device
+            }],
+            systems: configSystems
+        };
+        if (options.captureDir) cfg.captureDir = options.captureDir;
+        return JSON.stringify(cfg, null, 2);
+    }
+
+    // minimal ZIP (store) generator with CRC32 (robust for binary data)
+    function crc32(bytes){
+        const table = (function(){
+            let t = new Uint32Array(256);
+            for (let i=0;i<256;i++){
+                let c = i;
+                for (let k=0;k<8;k++){
+                    c = ((c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1));
+                }
+                t[i] = c >>> 0;
+            }
+            return t;
+        })();
+        let crc = 0xffffffff;
+        for (let i=0;i<bytes.length;i++){
+            crc = table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+        }
+        return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    function buildZip(files){
+        const encoder = new TextEncoder();
+        const locals = [];
+        const centrals = [];
+        let offset = 0;
+        const dosTime = 0; // we don't care about timestamp
+        const dosDate = 0;
+        files.forEach((file) => {
+            const nameBytes = encoder.encode(file.name);
+            const dataBytes = file.content instanceof Uint8Array ? file.content : encoder.encode(file.content);
+            const crc = crc32(dataBytes);
+
+            const local = new Uint8Array(30 + nameBytes.length);
+            const lv = new DataView(local.buffer);
+            lv.setUint32(0, 0x04034b50, true);
+            lv.setUint16(4, 20, true);              // version needed
+            lv.setUint16(6, 0x0800, true);          // UTF-8
+            lv.setUint16(8, 0, true);               // no compression (store)
+            lv.setUint16(10, dosTime, true);
+            lv.setUint16(12, dosDate, true);
+            lv.setUint32(14, crc, true);
+            lv.setUint32(18, dataBytes.length, true);
+            lv.setUint32(22, dataBytes.length, true);
+            lv.setUint16(26, nameBytes.length, true);
+            lv.setUint16(28, 0, true);              // extra length
+            local.set(nameBytes, 30);
+            locals.push(local, dataBytes);
+
+            const central = new Uint8Array(46 + nameBytes.length);
+            const cv = new DataView(central.buffer);
+            cv.setUint32(0, 0x02014b50, true);
+            cv.setUint16(4, 20, true);              // version made by
+            cv.setUint16(6, 20, true);              // version needed
+            cv.setUint16(8, 0x0800, true);          // UTF-8
+            cv.setUint16(10, 0, true);              // method: store
+            cv.setUint16(12, dosTime, true);
+            cv.setUint16(14, dosDate, true);
+            cv.setUint32(16, crc, true);
+            cv.setUint32(20, dataBytes.length, true);
+            cv.setUint32(24, dataBytes.length, true);
+            cv.setUint16(28, nameBytes.length, true);
+            cv.setUint16(30, 0, true);              // extra len
+            cv.setUint16(32, 0, true);              // comment len
+            cv.setUint16(34, 0, true);              // disk start
+            cv.setUint16(36, 0, true);              // internal attrs
+            cv.setUint32(38, 0, true);              // external attrs
+            cv.setUint32(42, offset, true);         // relative offset of local header
+            central.set(nameBytes, 46);
+            centrals.push(central);
+
+            offset += local.length + dataBytes.length;
+        });
+
+        const centralSize = centrals.reduce((sum, c) => sum + c.length, 0);
+        const centralOffset = locals.reduce((s, a) => s + a.length, 0);
+        const end = new Uint8Array(22);
+        const ev = new DataView(end.buffer);
+        ev.setUint32(0, 0x06054b50, true);
+        ev.setUint16(4, 0, true);                   // disk number
+        ev.setUint16(6, 0, true);                   // disk with central dir
+        ev.setUint16(8, files.length, true);        // entries on this disk
+        ev.setUint16(10, files.length, true);       // total entries
+        ev.setUint32(12, centralSize, true);        // size of central dir
+        ev.setUint32(16, centralOffset, true);      // offset of central dir
+        ev.setUint16(20, 0, true);                  // comment length
+
+        const total = centralOffset + centralSize + end.length;
+        const out = new Uint8Array(total);
+        let cursor = 0;
+        locals.forEach((chunk) => { out.set(chunk, cursor); cursor += chunk.length; });
+        centrals.forEach((chunk) => { out.set(chunk, cursor); cursor += chunk.length; });
+        out.set(end, cursor);
+        return new Blob([out], { type: "application/zip" });
+    }
+
+    async function fetchStaticMapPng(zip, radiusMiles){
+        const url = new URL("/hpdb/static-map/by-zip", window.location.origin);
+        url.searchParams.set("zip", zip);
+        url.searchParams.set("radius_miles", Math.min(100, Math.max(1, radiusMiles || 25)));
+        const res = await fetch(url.toString(), { headers: { "Accept": "image/png" } });
+        if (!res.ok){
+            const txt = await res.text();
+            throw new Error(`Static map error ${res.status}: ${txt.slice(0,200)}`);
+        }
+        const buf = await res.arrayBuffer();
+        return new Uint8Array(buf);
+    }
+
+    async function maybeAddStaticMap(files, nameHint){
+        if (!lastZipLookup.zip) return;
+        try{
+            const radius = Math.min(100, Math.max(1, lastZipLookup.radius || 25));
+            const url = `/hpdb/static-map/by-zip?zip=${encodeURIComponent(lastZipLookup.zip)}&radius_miles=${encodeURIComponent(radius)}`;
+            const res = await fetch(url, { headers: { "Accept": "image/png" } });
+            if (!res.ok) throw new Error(`Static map error ${res.status}`);
+            const buf = await res.arrayBuffer();
+            const nameBase = (lastZipLookup.zip || nameHint || "area").toString().trim();
+            files.push({ name: `${nameBase}_map.png`, content: new Uint8Array(buf) });
+        }catch(err){
+            console.warn("static map fetch failed", err);
+        }
+    }
+
+    function wireWizard(data){
+        const box = document.getElementById("wizardBox");
+        if (!box) return;
+        const sys = (data.trunked || []).find((s) => s.trunk_id === activeSystemId) || (data.trunked || [])[0];
+        if (!sys) return;
+        const fips = currentCountyFips || "area";
+
+        const defaultCenter = computeCenter(sys);
+        const defaultShort = sanitizeShortName(sys.system_name || `system-${sys.trunk_id}`);
+        const countyState = sanitizePrefix([
+            data.county?.county_name || "county",
+            data.county?.state_abbrev || "state",
+        ]);
+        const nameBase = (lastZipLookup.zip || countyState || "area").toString().trim();
+
+        box.querySelector("#wizDriver").value = "osmosdr";
+        box.querySelector("#wizDevice").value = "rtl=0";
+        box.querySelector("#wizCenter").value = defaultCenter;
+        box.querySelector("#wizRate").value = 2048000;
+        box.querySelector("#wizGain").value = 35;
+        box.querySelector("#wizTgFile").value = `${nameBase}_tg.csv`;
+        box.querySelector("#wizChanFile").value = `${nameBase}_channels.csv`;
+        box.querySelector("#wizCaptureDir").value = "/var/trunking-recorder";
+        box.querySelector("#wizIncludeConventional").checked = true;
+        box.querySelector("#wizIncludeTalkgroups").checked = true;
+
+        const btn = box.querySelector("#btnDownloadConfig");
+        const msg = box.querySelector("#wizMsg");
+
+        btn.onclick = async () => {
+            msg.textContent = "";
+            try{
+                const opts = {
+                    driver: box.querySelector("#wizDriver").value || "osmosdr",
+                    device: box.querySelector("#wizDevice").value || "rtl=0",
+                    center: Number(box.querySelector("#wizCenter").value || defaultCenter),
+                    rate: Number(box.querySelector("#wizRate").value || 2048000),
+                    gain: Number(box.querySelector("#wizGain").value || 35),
+                    tgFile: box.querySelector("#wizTgFile").value || `talkgroups-${fips}.csv`,
+                    chanFile: box.querySelector("#wizChanFile").value || `channels-${fips}.csv`,
+                    captureDir: box.querySelector("#wizCaptureDir").value || ""
+                };
+                const includeConv = box.querySelector("#wizIncludeConventional").checked;
+                const includeTg = box.querySelector("#wizIncludeTalkgroups").checked;
+                const cfg = buildConfigJson(fips, sys, { ...opts, shortName: defaultShort }, includeConv, includeTg, data);
+                const files = [{ name: `${nameBase}_config.json`, content: cfg }];
+                if (includeTg){
+                    const tgCsv = makeTalkgroupsCsv(data, sys.trunk_id);
+                    files.push({ name: `${nameBase}_tg.csv`, content: tgCsv });
+                    const countyCsv = makeCountyStateTalkgroupsCsv(data);
+                    files.push({ name: `${nameBase}_talkgroups.csv`, content: countyCsv });
+                }
+                if (includeConv){
+                    const chanCsv = makeChannelsCsv(data);
+                    if (chanCsv) files.push({ name: `${nameBase}_channels.csv`, content: chanCsv });
+                }
+                await maybeAddStaticMap(files, nameBase);
+                const zip = buildZip(files);
+                const url = URL.createObjectURL(zip);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `trunk-recorder-config-${nameBase}.zip`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                msg.textContent = "ZIP generated.";
+            }catch(err){
+                console.error(err);
+                msg.textContent = err.message || "Failed to build ZIP.";
+            }
+        };
+    }
+
+    function xmlEscape(str){
+        return String(str || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&apos;");
+    }
+
+    function makeOp25WhitelistCsv(data, sys){
+        const tgs = (data.talkgroups || []).filter((t) => t.trunk_id === sys.trunk_id);
+        if (!tgs.length) return "";
+        const header = "Decimal,Alpha Tag,Description";
+        const body = tgs.map((tg) => [tg.tid, tg.alpha_tag || tg.talkgroup || `TG ${tg.tid}`, tg.service || tg.category || ""].map(csvEscape).join(",")).join("\\n");
+        return `${header}\\n${body}\\n`;
+    }
+
+    function buildOp25Config(data, sys, options){
+        const parts = [
+            (data.county?.county_name || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+            (data.county?.state_abbrev || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+        ].filter(Boolean);
+        const nameBase = (lastZipLookup.zip || parts.join("_") || "area").toString().trim();
+        const controlList = options.cclist || computeControlChannels(sys).map((f) => (f/1e6).toFixed(5)).join(",");
+        const template = options.template || "p25_single_rtl";
+
+        // base device(s)
+        const baseDevice = {
+            args: options.device || "rtl=0",
+            gains: options.gain || "LNA:39",
+            gain_mode: false,
+            name: "sdr0",
+            offset: 0,
+            ppm: 0.0,
+            rate: Number(options.rate || 1000000),
+            usable_bw_pct: 0.85,
+            tunable: true,
+        };
+        const devices = [baseDevice];
+
+        // channels and trunking by template
+        const channels = [];
+        const trunking = {};
+        const systemName = options.name || sys.system_name || "P25 System";
+
+        if (template.startsWith("p25")){
+            const useDual = template === "p25_two_rtl" || template === "p25_rtl";
+            if (useDual){
+                devices.push({ ...baseDevice, name: "sdr1", args: options.device || "rtl=1" });
+            }
+            const chNames = useDual ? ["Voice_ch1","Voice_ch2"] : ["Voice_ch1"];
+            chNames.forEach((nm, idx) => {
+                channels.push({
+                    name: nm,
+                    device: useDual && idx === 1 ? "sdr1" : "sdr0",
+                    trunking_sysname: systemName,
+                    meta_stream_name: useDual ? `stream_${idx}` : "",
+                    demod_type: "cqpsk",
+                    destination: options.udp || "udp://127.0.0.1:23456",
+                    excess_bw: 0.2,
+                    filter_type: "rc",
+                    frequency: undefined,
+                    if_rate: 24000,
+                    plot: "",
+                    symbol_rate: 4800,
+                    enable_analog: "off",
+                    blacklist: "",
+                    whitelist: options.includeTg ? (useDual ? `stream${idx}.wlist` : "stream0.wlist") : "",
+                    crypt_keys: "",
+                });
+            });
+            trunking.module = "tk_p25.py";
+            trunking.chans = [
+                {
+                    nac: options.nac || "0x0",
+                    wacn: options.wacn || "0x00000",
+                    sysid: options.sysid || "0x000",
+                    sysname: systemName,
+                    control_channel_list: controlList,
+                    whitelist: "",
+                    blacklist: "",
+                    tgid_tags_file: options.includeTg ? `${nameBase}_tgid-tags.tsv` : "",
+                    rid_tags_file: "",
+                    tdma_cc: false,
+                    crypt_behavior: 2,
+                },
+            ];
+        } else if (template.startsWith("dmr")){
+            const lcnList = computeControlChannels(sys).map((f, idx) => ({ lcn: idx + 1, frequency: Math.round(f), cc: 1 }));
+            channels.push({
+                device: "sdr0",
+                demod_type: "fsk4",
+                destination: options.udp || "udp://127.0.0.1:23466",
+                excess_bw: 0.2,
+                filter_type: "rrc",
+                if_rate: 24000,
+                name: "CC",
+                plot: "fft",
+                symbol_rate: 4800,
+            });
+            channels.push({
+                device: "sdr0",
+                demod_type: "fsk4",
+                destination: options.udp || "udp://127.0.0.1:23466",
+                excess_bw: 0.2,
+                filter_type: "rrc",
+                if_rate: 24000,
+                name: "VC",
+                plot: "fft",
+                symbol_rate: 4800,
+            });
+            if (template === "dmr_airspy"){
+                devices[0].args = options.device || "airspy";
+                devices[0].rate = Number(options.rate || 6000000);
+                devices[0].tunable = false;
+                devices[0].gains = options.gain || "LNA:15,MIX:15,IF:8";
+            } else {
+                devices[0].args = options.device || "rtl=0";
+                devices[0].rate = Number(options.rate || 960000);
+            }
+            trunking.module = "tk_trbo.py";
+            trunking.chans = lcnList.length ? lcnList : [
+                { lcn: 1, frequency: 461300000, cc: 5 },
+                { lcn: 2, frequency: 461800000, cc: 5 },
+            ];
+        } else if (template === "smartnet"){
+            channels.push({
+                name: "control channel",
+                trunking_sysname: systemName,
+                device: "sdr0",
+                raw_output: "",
+                demod_type: "fsk",
+                destination: "smartnet",
+                excess_bw: 0.35,
+                filter_type: "fsk2",
+                if_rate: 18000,
+                plot: "mixer",
+                enable_analog: "off",
+                symbol_rate: 3600,
+            });
+            channels.push({
+                name: "voice channel",
+                trunking_sysname: systemName,
+                meta_stream_name: "stream_0",
+                device: "sdr1",
+                blacklist: "",
+                whitelist: "",
+                raw_output: "",
+                demod_type: "fsk4",
+                destination: options.udp || "udp://127.0.0.1:23456",
+                enable_analog: "auto",
+                nbfm_deviation: 4000,
+                nbfm_squelch_threshold: -60,
+                nbfm_squelch_gain: 0.0050,
+                nbfm_raw_output: "",
+                nbfm_enable_subchannel: false,
+                excess_bw: 0.2,
+                filter_type: "widepulse",
+                if_rate: 24000,
+                plot: "",
+                symbol_rate: 4800,
+            });
+            devices.push({ ...baseDevice, name: "sdr1", args: options.device || "rtl=1" });
+            trunking.module = "tk_smartnet.py";
+            trunking.chans = [
+                {
+                    sysname: systemName,
+                    control_channel_list: controlList || "854.4125",
+                    tgid_tags_file: options.includeTg ? `${prefix}tgid-tags.tsv` : "",
+                    tgid_hold_time: 2.0,
+                    blacklist: "",
+                    whitelist: "",
+                    bandplan: "800_rebanded",
+                },
+            ];
+        } else if (template === "p25_conventional"){
+            channels.push({
+                name: "Voice_chA",
+                frequency: computeControlChannels(sys)[0] || 155820000,
+                device: "sdr0",
+                trunking_sysname: "",
+                meta_stream_name: "",
+                demod_type: "fsk4",
+                destination: options.udp || "udp://127.0.0.1:23456",
+                excess_bw: 0.2,
+                filter_type: "rc",
+                if_rate: 24000,
+                plot: "",
+                symbol_rate: 4800,
+                enable_analog: "off",
+                blacklist: "",
+                whitelist: "",
+                crypt_keys: "",
+            });
+            trunking.module = "tk_p25.py";
+            trunking.chans = [];
+        }
+
+        const cfg = {
+            channels,
+            devices,
+            trunking,
+            metadata: {
+                module: "icemeta.py",
+                streams: [
+                    {
+                        stream_name: "stream_0",
+                        meta_format_idle: "[idle]",
+                        meta_format_tgid: "[%TGID%]",
+                        meta_format_tag: "[%TGID%] %TAG%",
+                        icecastServerAddress: "127.0.0.1:8000",
+                        icecastMountpoint: "op25_stream_0",
+                        icecastMountExt: ".xspf",
+                        icecastPass: "changeme",
+                        delay: 0.0,
+                    },
+                ],
+            },
+            audio: {
+                module: "sockaudio.py",
+                instances: [
+                    {
+                        instance_name: "audio0",
+                        device_name: "default",
+                        udp_port: 23456,
+                        audio_gain: 1.0,
+                        number_channels: 1,
+                    },
+                ],
+            },
+            terminal: {
+                module: "terminal.py",
+                terminal_type: "curses",
+                "curses_plot_interval": 0.1,
+                "http_plot_interval": 1.0,
+                "http_plot_directory": "../www/images",
+                "tuning_step_large": 1200,
+                "tuning_step_small": 100,
+            },
+        };
+        return JSON.stringify(cfg, null, 2);
+    }
+
+    function buildSdrtrunkPlaylist(data, sys, options){
+        const tgList = options.includeTalkgroups ? (data.talkgroups || []).filter(t => t.trunk_id === sys.trunk_id) : [];
+        const conv = options.includeConventional ? (data.conventional || []) : [];
+        const aliasListName = sys.system_name || `System ${sys.trunk_id}`;
+
+        const lines = [];
+        lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+        lines.push('<playlist version="4">');
+
+        tgList.forEach((tg) => {
+            const name = xmlEscape(tg.alpha_tag || tg.talkgroup || `TG ${tg.tid}`);
+            const cat = xmlEscape(tg.category || tg.service || "");
+            lines.push(`  <alias name="${name}" color="0" list="${xmlEscape(aliasListName)}">`);
+            lines.push(`    <id type="talkgroup" value="${xmlEscape(tg.tid)}" protocol="APCO25"/>`);
+            if (cat) lines.push(`    <id type="group" name="${cat}"/>`);
+            lines.push(`    <id type="priority" priority="-1"/>`);
+            lines.push(`    <id type="record"/>`);
+            lines.push(`  </alias>`);
+        });
+
+        conv.forEach((row, idx) => {
+            const freqHz = row.frequency_hz || Math.round((row.frequency_mhz || 0) * 1e6);
+            if (!freqHz) return;
+            const name = xmlEscape(row.channel || row.department || `${freqHz}`);
+            lines.push(`  <alias name="${name}" color="0" list="Conventional">`);
+            lines.push(`    <id type="talkgroup" value="${1000 + idx}" protocol="NBFM"/>`);
+            lines.push(`    <id type="priority" priority="-1"/>`);
+            lines.push(`    <id type="record"/>`);
+            lines.push(`  </alias>`);
+        });
+
+        (sys.sites || []).forEach((site) => {
+            const freqs = (site.frequencies || [])
+                .map((f) => f.frequency_hz || Math.round((f.frequency_mhz || 0) * 1e6))
+                .filter(Boolean);
+            if (!freqs.length) return;
+            const siteName = xmlEscape(site.site_name || `Site ${site.site_id}`);
+            lines.push(`  <channel name="${siteName}" site="${siteName}" system="${xmlEscape(aliasListName)}" order="1" enabled="true">`);
+            lines.push(`    <alias_list_name>${xmlEscape(aliasListName)}</alias_list_name>`);
+            if (freqs.length === 1){
+                const pref = options.tuner ? ` preferred_tuner="${xmlEscape(options.tuner)}"` : "";
+                lines.push(`    <source_configuration type="sourceConfigTuner" frequency="${freqs[0]}" source_type="TUNER"${pref}/>`);
+            } else {
+                const pref = options.tuner ? ` preferred_tuner="${xmlEscape(options.tuner)}"` : "";
+                lines.push(`    <source_configuration type="sourceConfigTunerMultipleFrequency" frequency_rotation_delay="5000" source_type="TUNER_MULTIPLE_FREQUENCIES"${pref}>`);
+                freqs.forEach((f) => lines.push(`      <frequency>${f}</frequency>`));
+                lines.push(`    </source_configuration>`);
+            }
+            lines.push(`    <event_log_configuration/>`);
+            lines.push(`    <record_configuration/>`);
+            lines.push(`    <decode_configuration type="decodeConfigP25Phase1" modulation="C4FM" traffic_channel_pool_size="4" ignore_data_calls="false"/>`);
+            lines.push(`    <aux_decode_configuration/>`);
+            lines.push(`  </channel>`);
+        });
+
+        conv.forEach((row, idx) => {
+            const freqHz = row.frequency_hz || Math.round((row.frequency_mhz || 0) * 1e6);
+            if (!freqHz) return;
+            const chanName = xmlEscape(row.channel || row.department || `${freqHz}`);
+            const pref = options.tuner ? ` preferred_tuner="${xmlEscape(options.tuner)}"` : "";
+            lines.push(`  <channel name="${chanName}" site="Conventional" system="Conventional" order="1" enabled="true">`);
+            lines.push(`    <alias_list_name>Conventional</alias_list_name>`);
+            lines.push(`    <source_configuration type="sourceConfigTuner" frequency="${freqHz}" source_type="TUNER"${pref}/>`);
+            lines.push(`    <event_log_configuration/>`);
+            lines.push(`    <record_configuration/>`);
+            lines.push(`    <decode_configuration type="decodeConfigNBFM" audioFilter="true" bandwidth="${xmlEscape(options.bandwidth || "12500")}" squelch="${xmlEscape(options.squelch || "20")}" talkgroup="${1000 + idx}" autoTrack="true"/>`);
+            lines.push(`    <aux_decode_configuration/>`);
+            lines.push(`  </channel>`);
+        });
+
+        lines.push(`</playlist>`);
+        return lines.join("\\n") + "\\n";
+    }
+
+    function wireSdrWizard(data){
+        const btn = document.getElementById("btnDownloadSdr");
+        const msg = document.getElementById("sdrMsg");
+        if (!btn) return;
+       // prefill playlist name
+        const parts = [
+            (data.county?.county_name || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+            (data.county?.state_abbrev || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+        ].filter(Boolean);
+        const nameBase = (lastZipLookup.zip || parts.join("_") || "area").toString().trim();
+        const defaultName = `${data.county?.county_name || "County"} Playlist`;
+        const nameInput = document.getElementById("sdrName");
+        if (nameInput && !nameInput.value) {
+            nameInput.value = defaultName;
+        }
+        btn.onclick = async () => {
+            msg.textContent = "";
+            const sys = (data.trunked || []).find((s) => s.trunk_id === activeSystemId) || (data.trunked || [])[0];
+            if (!sys){ msg.textContent = "Select a trunked system first."; return; }
+            try{
+                const options = {
+                    name: nameInput?.value || defaultName,
+                    tuner: document.getElementById("sdrTuner").value || "",
+                    squelch: document.getElementById("sdrSquelch").value || "20",
+                    bandwidth: document.getElementById("sdrBandwidth").value || "12500",
+                    includeConventional: document.getElementById("sdrIncludeConventional").checked,
+                    includeTalkgroups: document.getElementById("sdrIncludeTalkgroups").checked,
+                };
+                const xml = buildSdrtrunkPlaylist(data, sys, options);
+                const files = [{ name: `${nameBase}_playlist.xml`, content: xml }];
+                await maybeAddStaticMap(files, nameBase);
+                const zipBlob = buildZip(files);
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `sdrtrunk-config-${nameBase}.zip`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                msg.textContent = "ZIP generated.";
+            }catch(err){
+                console.error(err);
+                msg.textContent = err.message || "Failed to build playlist.";
+            }
+        };
+    }
+
+    function wireOp25Wizard(data){
+        const btn = document.getElementById("btnDownloadOp25");
+        const msg = document.getElementById("op25Msg");
+        if (!btn) return;
+        const parts = [
+            (data.county?.county_name || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+            (data.county?.state_abbrev || "").toString().replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, ""),
+        ].filter(Boolean);
+        const nameBase = (lastZipLookup.zip || parts.join("_") || "area").toString().trim();
+        const nameInput = document.getElementById("op25Name");
+        if (nameInput && !nameInput.value){
+            nameInput.value = data.county?.county_name ? `${data.county.county_name} ${data.county.state_abbrev || ""} OP25`.trim() : "OP25 System";
+        }
+        const ccInput = document.getElementById("op25Cclist");
+        const sys = (data.trunked || []).find((s) => s.trunk_id === activeSystemId) || (data.trunked || [])[0];
+        if (ccInput && sys){
+            const defaultCcl = computeControlChannels(sys).map((f) => (f/1e6).toFixed(5)).join(",");
+            if (!ccInput.value) ccInput.value = defaultCcl;
+        }
+        btn.onclick = async () => {
+            msg.textContent = "";
+            const sysSel = (data.trunked || []).find((s) => s.trunk_id === activeSystemId) || (data.trunked || [])[0];
+            if (!sysSel){ msg.textContent = "Select a trunked system first."; return; }
+            try{
+                const options = {
+                    template: document.getElementById("op25Template").value || "p25_single_rtl",
+                    name: document.getElementById("op25Name").value || (sysSel.system_name || "P25 System"),
+                    device: document.getElementById("op25Device").value || "rtl=0",
+                    rate: document.getElementById("op25Rate").value || "1000000",
+                    gain: document.getElementById("op25Gain").value || "LNA:39",
+                    cclist: document.getElementById("op25Cclist").value || "",
+                    sysid: document.getElementById("op25Sysid").value || "0x000",
+                    wacn: document.getElementById("op25Wacn").value || "0x00000",
+                    nac: document.getElementById("op25Nac").value || "0x0",
+                    udp: document.getElementById("op25Udp").value || "udp://127.0.0.1:23456",
+                    whitelistFile: document.getElementById("op25Wlist").value || `${nameBase}_tgid-tags.tsv`,
+                    includeTg: document.getElementById("op25IncludeTalkgroups").checked,
+                };
+                const cfg = buildOp25Config(data, sysSel, options);
+                const files = [{ name: `${nameBase}-op25.json`, content: cfg }];
+                if (options.includeTg){
+                    const tgCsv = makeOp25WhitelistCsv(data, sysSel);
+                    if (tgCsv) files.push({ name: `${nameBase}_tgid-tags.tsv`, content: tgCsv });
+                }
+                await maybeAddStaticMap(files, nameBase);
+                const zip = buildZip(files);
+                const url = URL.createObjectURL(zip);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `op25-config-${nameBase}.zip`;
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                msg.textContent = "op25 config generated.";
+            }catch(err){
+                console.error(err);
+                msg.textContent = err.message || "Failed to build op25 config.";
+            }
+        };
+    }
+
+    function wireSiteToggles(){
+        const toggles = popupBody.querySelectorAll(".site-toggle");
+        toggles.forEach((btn) => {
+            btn.onclick = () => {
+                const id = btn.getAttribute("data-site-id");
+                const site = popupBody.querySelector(`.site[data-site-id='${id}']`);
+                if (!site) return;
+                const collapsed = site.classList.toggle("is-collapsed");
+                btn.textContent = collapsed ? "Expand" : "Collapse";
+            };
+        });
+    }
+
+    function wireConvToggle(){
+        const block = document.getElementById("conventionalBlock");
+        const btn = document.getElementById("convToggle");
+        if (!block || !btn) return;
+        btn.onclick = () => {
+            const collapsed = block.classList.toggle("is-collapsed");
+            btn.textContent = collapsed ? "Expand" : "Collapse";
+        };
+    }
+
+    function wireWizardTabs(data){
+        const tabs = popupBody.querySelectorAll(".wizard-tab");
+        const trunking = popupBody.querySelector("#wizard-trunkrecorder");
+        const sdr = popupBody.querySelector("#wizard-sdrtrunk");
+        const op25 = popupBody.querySelector("#wizard-op25");
+        tabs.forEach((tab) => {
+            tab.onclick = () => {
+                tabs.forEach(t => t.classList.remove("is-active"));
+                tab.classList.add("is-active");
+                const target = tab.getAttribute("data-wizard");
+                trunking.style.display = target === "trunkrecorder" ? "block" : "none";
+                sdr.style.display = target === "sdrtrunk" ? "block" : "none";
+                op25.style.display = target === "op25" ? "block" : "none";
+            };
+        });
+        wireSdrWizard(data);
+        wireOp25Wizard(data);
+    }
+
+    function openPopupFromData(data, label, preferredWizard){
+        overlay.setAttribute("aria-hidden","false");
+        if (!data){
+            popupBody.innerHTML = `<p class="error">No data returned.</p>`;
+            return;
+        }
+        lastCountyData = data;
+        activeSystemId = (data.trunked && data.trunked[0] && data.trunked[0].trunk_id) || null;
+        const cid = data.county?.county_id || data.county?.county_fips || data.county?.fips;
+        currentCountyFips = cid ? String(cid).padStart(5,"0") : "zip";
+        const title = label || `${data.county?.county_name || "Area"}${data.county?.state_abbrev ? `, ${data.county.state_abbrev}` : ""}`;
+        popupTitle.textContent = title;
+        popupBody.innerHTML = renderFullPopup(data);
+        wireSystemClicks(data);
+        wireWizard(data);
+        wireSiteToggles();
+        wireConvToggle();
+        wireWizardTabs(data);
+        if (preferredWizard){
+            const tab = popupBody.querySelector(`.wizard-tab[data-wizard='${preferredWizard}']`);
+            if (tab) tab.click();
+        }
+    }
+
+    async function openPopup(stateName, countyName, s2, c5){
+        popupTitle.textContent = `${countyName}, ${stateName}`;
+        popupBody.innerHTML = `<p class="muted">Loading CodePlug-PB data…</p>`;
+        overlay.setAttribute("aria-hidden","false");
+        currentCountyFips = String(c5).padStart(5,"0");
+
+        const stateAbbr = STATE_ABBR[s2] || stateName || s2;
+        try{
+            const url = new URL("/hpdb/query", window.location.origin);
+            url.searchParams.set("state", stateAbbr);
+            url.searchParams.set("county", countyName);
+            url.searchParams.set("include_trunk_site_frequencies", "true");
+            const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+            const ctype = (res.headers.get("content-type") || "").toLowerCase();
+            if (!ctype.includes("application/json")){
+                const txt = await res.text();
+                throw new Error(`Expected JSON, got ${ctype || "unknown"}: ${txt.slice(0,300)}`);
+            }
+            if (!res.ok){
+                const txt = await res.text();
+                throw new Error(`API ${res.status}: ${txt.slice(0,300)}`);
+            }
+            const data = await res.json();
+            openPopupFromData(data, `${countyName}, ${stateName}`, "trunking");
+        }catch(err){
+            console.error(err);
+            popupBody.innerHTML = `<p class="error">${escapeHtml(err.message || "Failed to load CodePlug-PB data.")}</p>`;
+        }
+    }
+    function closePopup(){ overlay.setAttribute("aria-hidden","true"); }
+    btnClose.addEventListener("click", closePopup);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closePopup(); });
+    window.addEventListener("keydown", (e) => { if (e.key === "Escape") closePopup(); });
+
+    async function fetchZipAndOpen(zip, radius, wizardPref){
+        const r = (isFinite(radius) && radius > 0) ? radius : 25;
+        const label = `ZIP ${zip} · ${r} mi radius`;
+        popupTitle.textContent = label;
+        popupBody.innerHTML = `<p class="muted">Loading CodePlug-PB data…</p>`;
+        overlay.setAttribute("aria-hidden","false");
+            try{
+                const url = new URL("/hpdb/query/by-zip", window.location.origin);
+                url.searchParams.set("zip", zip);
+                url.searchParams.set("radius_miles", r);
+                url.searchParams.set("include_trunk_site_frequencies", "true");
+                url.searchParams.set("limit_talkgroups", "20000");
+                const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+            const ctype = (res.headers.get("content-type") || "").toLowerCase();
+            if (!ctype.includes("application/json")){
+                const txt = await res.text();
+                throw new Error(`Expected JSON, got ${ctype || "unknown"}: ${txt.slice(0,300)}`);
+            }
+            if (!res.ok){
+                const txt = await res.text();
+                throw new Error(`API ${res.status}: ${txt.slice(0,300)}`);
+            }
+            const data = await res.json();
+            lastZipLookup = { zip, radius: r };
+            const wizard = (wizardPref === "sdrtrunk" || wizardPref === "op25" || wizardPref === "trunkrecorder") ? wizardPref : "trunkrecorder";
+            openPopupFromData(data, label, wizard);
+        }catch(err){
+            console.error(err);
+            popupBody.innerHTML = `<p class="error">${escapeHtml(err.message || "Failed to load ZIP data.")}</p>`;
+            showErr(err.message || "Failed to load ZIP data.");
+        }
+    }
+
+    function wireZipMenu(){
+        if (!menuBtn || !menuPanel) return;
+        const closeMenu = () => {
+            menuPanel.style.display = "none";
+            menuBtn.setAttribute("aria-expanded","false");
+        };
+        const openMenu = () => {
+            menuPanel.style.display = "block";
+            menuBtn.setAttribute("aria-expanded","true");
+        };
+        menuBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const isOpen = menuPanel.style.display === "block";
+            if (isOpen) closeMenu(); else openMenu();
+        });
+        document.addEventListener("click", (e) => {
+            if (menuPanel.style.display !== "block") return;
+            if (!menuPanel.contains(e.target) && e.target !== menuBtn){
+                closeMenu();
+            }
+        });
+        if (menuRadius && !menuRadius.value) menuRadius.value = 25;
+
+        const buttons = document.querySelectorAll("[data-zip-wizard]");
+        buttons.forEach((btn) => {
+            btn.addEventListener("click", async (e) => {
+                e.preventDefault();
+                closeMenu();
+                const zip = (menuZip?.value || "").trim();
+                const radius = Number(menuRadius?.value || 25);
+                if (!zip){
+                    showErr("Enter a ZIP code to search.");
+                    return;
+                }
+                showErr("");
+                const pref = btn.getAttribute("data-zip-wizard");
+                fetchZipAndOpen(zip, radius, pref);
+            });
+        });
+    }
+
+    wireZipMenu();
+    if (initialZip){
+        fetchZipAndOpen(initialZip, initialRadius || 25, initialWizard);
+    }
+
+    const svg = d3.select("#map")
+        .append("svg")
+        .attr("viewBox", `0 0 ${W} ${H}`)
+        .attr("preserveAspectRatio", "xMidYMid meet");
+
+    // prevent gesture side effects
+    const svgNode = svg.node();
+    ["wheel","touchstart","touchmove","gesturestart","gesturechange","gestureend"].forEach(evt => {
+        svgNode.addEventListener(evt, (e) => e.preventDefault(), { passive:false });
+    });
+
+    const g = svg.append("g");
+    const gCounties = g.append("g");
+    const gOutline  = g.append("g");
+    const gCities   = g.append("g"); // cities drawn on top
+
+    let countyPathById = new Map();
+    let countyItemById = new Map();
+    let activeId = null;
+
+    function setActive(id){
+        activeId = id;
+
+        for (const [cid, sel] of countyPathById.entries()){
+            sel.classed("is-active", cid === id);
+        }
+        for (const [cid, el] of countyItemById.entries()){
+            el.classList.toggle("is-active", cid === id);
+        }
+    }
+
+    function renderCountyList(counties, stateName){
+        listEl.innerHTML = "";
+        countyItemById.clear();
+
+        const q = (qEl.value || "").trim().toLowerCase();
+
+        const filtered = counties
+            .slice()
+            .sort((a,b) => a.name.localeCompare(b.name))
+            .filter(c => !q || c.name.toLowerCase().includes(q) || c.id.includes(q));
+
+        for (const c of filtered){
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "item";
+            btn.innerHTML = `<span>${escapeHtml(c.name)}</span><span class="meta">${escapeHtml(c.id)}</span>`;
+
+            btn.addEventListener("mouseenter", () => setActive(c.id));
+            btn.addEventListener("mouseleave", () => setActive(null));
+            btn.addEventListener("click", () => openPopup(stateName, c.name, stateFips, c.id));
+
+            listEl.appendChild(btn);
+            countyItemById.set(c.id, btn);
+        }
+    }
+
+    function pickProp(obj, keys, fallback){
+        for (const k of keys){
+            if (obj && obj[k] != null) return obj[k];
+        }
+        return fallback;
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Label collision avoidance (greedy, population-first)
+    // ─────────────────────────────────────────────────────────────
+    function rectsOverlap(a, b, pad){
+        return !(
+            (a.x + a.w + pad) < b.x ||
+            (b.x + b.w + pad) < a.x ||
+            (a.y + a.h + pad) < b.y ||
+            (b.y + b.h + pad) < a.y
+        );
+    }
+
+    function placeCityLabelsNoOverlap(cityG){
+        const placed = [];
+
+        // candidate positions around the dot
+        const r = CITY_DOT_R;
+        const candidates = [
+            // right / left
+            { x: r + 4,  y: 4,  anchor: "start"  },
+            { x: -(r + 4), y: 4, anchor: "end"  },
+
+            // above / below
+            { x: 0, y: -(r + 8), anchor: "middle" },
+            { x: 0, y: (r + 14), anchor: "middle" },
+
+            // diagonals
+            { x: r + 4,   y: -(r + 6), anchor: "start"  }, // NE
+            { x: -(r + 4),y: -(r + 6), anchor: "end"    }, // NW
+            { x: r + 4,   y: (r + 12), anchor: "start"  }, // SE
+            { x: -(r + 4),y: (r + 12), anchor: "end"    }, // SW
+        ];
+
+        const xmin = LABEL_SAFE_PAD;
+        const ymin = LABEL_SAFE_PAD;
+        const xmax = W - LABEL_SAFE_PAD;
+        const ymax = H - LABEL_SAFE_PAD;
+
+        cityG.each(function(d){
+            const gSel = d3.select(this);
+            const label = gSel.select("text.city-label");
+            if (label.empty()) return;
+
+            // reset in case we re-run
+            label.attr("x", 0).attr("y", 0).attr("text-anchor", "middle");
+
+            const bbox = label.node().getBBox();
+
+            for (const cand of candidates){
+                const x = cand.x;
+                const y = cand.y;
+
+                const rect = {
+                    x: d.x + x - bbox.width/2,
+                    y: d.y + y - bbox.height,
+                    w: bbox.width,
+                    h: bbox.height
+                };
+
+                const inside = (
+                    rect.x >= xmin &&
+                    rect.y >= ymin &&
+                    rect.x + rect.w <= xmax &&
+                    rect.y + rect.h <= ymax
+                );
+                if (!inside) continue;
+
+                let overlaps = false;
+                for (const p of placed){
+                    if (rectsOverlap(rect, p, LABEL_MARGIN)){
+                        overlaps = true; break;
+                    }
+                }
+                if (overlaps) continue;
+
+                label.attr("x", x).attr("y", y).attr("text-anchor", cand.anchor);
+                placed.push(rect);
+                return;
+            }
+
+            // if no position fits, hide it
+            label.remove();
+        });
+    }
+
+    async function drawMajorCities(stateFeature, projection){
+        try{
+            const cities = await d3.json(CITIES_URL);
+            const features = (cities && cities.features) ? cities.features : [];
+
+            const stateBbox = d3.geoBounds(stateFeature);
+            const [minLon, minLat] = stateBbox[0];
+            const [maxLon, maxLat] = stateBbox[1];
+
+            const candidates = features
+                .map(f => {
+                    const props = f.properties || {};
+                    const coord = (f.geometry && f.geometry.coordinates) || [];
+                    const lon = pickProp(props, ["LONGITUDE","LONG","lon","longitude"], coord[0] ?? null);
+                    const lat = pickProp(props, ["LATITUDE","LAT","lat","latitude"], coord[1] ?? null);
+                    const name= pickProp(props, ["NAME","name"], "City");
+                    const pop = Number(pickProp(props, ["POP_MAX","POP_MIN","POP_EST","POPULATION"], 0));
+                    return { f, lon, lat, name, pop };
+                })
+                .filter(c => c.lon != null && c.lat != null && c.pop >= CITY_MIN_POP)
+                .filter(c => c.lon >= minLon && c.lon <= maxLon && c.lat >= minLat && c.lat <= maxLat)
+                .filter(c => d3.geoContains(stateFeature, [c.lon, c.lat]))
+                .sort((a,b) => b.pop - a.pop)
+                .slice(0, MAX_CITY_LABELS);
+
+            const cityData = candidates
+                .map(c => {
+                    const p = projection([c.lon, c.lat]);
+                    return { ...c, x:p[0], y:p[1] };
+                })
+                .filter(c => isFinite(c.x) && isFinite(c.y));
+
+            const cityG = gCities.selectAll("g")
+                .data(cityData)
+                .join("g")
+                .attr("transform", d => `translate(${d.x},${d.y})`);
+
+            cityG.append("circle")
+                .attr("class","city-dot")
+                .attr("r", CITY_DOT_R);
+
+            cityG.append("text")
+                .attr("class","city-label")
+                .attr("dy","0.35em")
+                .text(d => d.name);
+
+            placeCityLabelsNoOverlap(cityG);
+        }catch(err){
+            console.error("cities overlay", err);
+        }
+    }
+
+    (async () => {
+        try{
+            const topo = await d3.json(TOPO_URL);
+            const states = topojson.feature(topo, topo.objects.states).features;
+            const countiesAll = topojson.feature(topo, topo.objects.counties).features;
+
+            if (!stateFips || stateFips === "00"){
+                showErr("Missing state (provide ?state=FIPS or use SEO URL like /NY/Suffolk/).");
+                return;
+            }
+
+            const stateFeature = states.find(s => String(s.id).padStart(2,"0") === stateFips);
+            const stateName = (stateFeature && stateFeature.properties && stateFeature.properties.name)
+                ? stateFeature.properties.name
+                : (STATE_NAMES[stateFips] || `State ${stateFips}`);
+
+            titleEl.textContent = `Counties in ${stateName}`;
+            hintEl.textContent  = "Click a county (map or list) to load CodePlug-PB data.";
+
+            const counties = countiesAll
+                .filter(c => String(c.id).padStart(5,"0").slice(0,2) === stateFips)
+                .map(c => {
+                    const id = String(c.id).padStart(5,"0");
+                    const name = (c.properties && c.properties.name) ? c.properties.name : `County ${id}`;
+                    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+                    return { id, name, feature:c, slug };
+                });
+
+            renderCountyList(counties, stateName);
+            qEl.addEventListener("input", () => renderCountyList(counties, stateName));
+
+            // North-up projection
+            const projection = d3.geoMercator();
+            projection.fitExtent([[PAD, PAD], [W - PAD, H - PAD]], stateFeature || {
+                type:"FeatureCollection",
+                features: counties.map(d => d.feature)
+            });
+
+            const path = d3.geoPath(projection);
+
+            const countyPaths = gCounties.selectAll("path")
+                .data(counties)
+                .join("path")
+                .attr("class","county")
+                .attr("d", d => path(d.feature))
+                .on("mouseenter", (_, d) => setActive(d.id))
+                .on("mouseleave", () => setActive(null))
+                .on("click", (_, d) => {
+                    const stateAbbr = seoStateAbbr || STATE_ABBR[stateFips] || stateFips;
+                    window.history.replaceState({}, "", `/state/${encodeURIComponent(stateAbbr)}/${encodeURIComponent(d.slug || d.name)}`);
+                    openPopup(stateName, d.name, stateFips, d.id);
+                });
+
+            countyPaths.append("title").text(d => d.name);
+
+            countyPathById.clear();
+            countyPaths.each(function(d){
+                countyPathById.set(d.id, d3.select(this));
+            });
+
+            const seoCountyNorm = normCountyName(seoCountyName);
+            if (seoCountyNorm){
+                const target = counties.find(c => normCountyName(c.name) === seoCountyNorm || normCountyName(c.slug) === seoCountyNorm);
+                if (target){
+                    setActive(target.id);
+                    openPopup(stateName, target.name, stateFips, target.id);
+                }
+            }
+
+            if (stateFeature){
+                gOutline.append("path")
+                    .datum(stateFeature)
+                    .attr("class","state-outline")
+                    .attr("d", path);
+
+                await drawMajorCities(stateFeature, projection);
+            }
+
+        }catch(e){
+            console.error(e);
+            showErr("Failed to load map data. Check Console + Network for blocked assets.");
+        }
+    })();
+</script>
+</body>
+</html>

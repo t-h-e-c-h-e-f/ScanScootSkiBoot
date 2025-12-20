@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CodePlug-PB · Browse States</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+
+    body{
+      margin:0;
+      font-family: "Inter var", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:#060911;
+      color:#e6edf3;
+      display:flex;
+      flex-direction:column;
+      min-height:100vh;
+      overflow:hidden;
+    }
+
+    header{
+      padding:14px 18px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .menu-wrap{ position:relative; }
+    .menu-btn{ background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:700; display:inline-flex; gap:6px; align-items:center; }
+    .menu-panel{ position:absolute; top:calc(100% + 8px); left:0; width:260px; background:#0f1520; border:1px solid rgba(255,255,255,.14); border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.45); padding:12px; display:none; z-index:60; }
+    .menu-panel h4{ margin:0 0 8px; }
+    .menu-panel .field{ display:flex; flex-direction:column; gap:4px; font-size:13px; color:#cfd7e6; }
+    .menu-panel .field input{ background: rgba(10,16,26,.9); border:1px solid rgba(255,255,255,.12); color:#e6edf3; border-radius:10px; padding:8px 10px; font-size:13px; width:100%; }
+    .menu-panel .actions{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .menu-panel button{ background: rgba(99,179,237,.16); border:1px solid rgba(99,179,237,.45); color:#e6edf3; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:700; text-align:left; }
+    .menu-panel button:hover{ background: rgba(99,179,237,.22); }
+    .menu-panel .link{ display:inline-block; margin-top:10px; text-decoration:none; padding:10px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); color:#e6edf3; font-weight:700; text-align:center; }
+    .menu-panel .link:hover{ background: rgba(255,255,255,.08); }
+    header .title { display:flex; flex-direction:column; gap:4px; }
+    h1{ margin:0; font-size:18px; font-weight:680; letter-spacing:-0.01em; }
+    .hint{ opacity:.78; font-size:13px; margin:0; }
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); font-size:12px; font-weight:700; }
+
+    #wrap{
+      flex:1 1 auto;
+      min-height:0;
+      display:grid;
+      grid-template-columns: 320px 1fr;
+      gap:12px;
+      padding:12px;
+    }
+    @media (max-width: 860px){
+      #wrap{ grid-template-columns: 1fr; grid-template-rows: 240px 1fr; }
+    }
+
+    /* left panel */
+    #panel{
+      background: rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+      box-shadow: 0 18px 42px rgba(0,0,0,.35);
+    }
+    #panelTop{
+      padding:12px;
+      border-bottom:1px solid rgba(255,255,255,.08);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+    .search{
+      width:100%;
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.12);
+      color:#e6edf3;
+      border-radius:12px;
+      padding:10px 12px;
+      outline:none;
+      font-size:14px;
+    }
+    .search:focus{
+      border-color: rgba(99,179,237,.65);
+      box-shadow: 0 0 0 3px rgba(99,179,237,.12);
+    }
+    #list{ padding:8px; overflow:auto; min-height:0; }
+    .item{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      width:100%;
+      border:1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.02);
+      color:#e6edf3;
+      border-radius:12px;
+      padding:10px 10px;
+      margin:6px 0;
+      cursor:pointer;
+      text-align:left;
+      font-size:14px;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .item:hover{ background: rgba(255,255,255,.06); }
+    .item.is-active{
+      border-color: rgba(99,179,237,.55);
+      background: rgba(99,179,237,.10);
+    }
+    .meta{ opacity:.65; font-size:12px; white-space:nowrap; }
+
+    /* right map */
+    #map{
+      background: radial-gradient(circle at 20% 20%, rgba(99,179,237,.08), transparent 32%),
+                  radial-gradient(circle at 80% 0%, rgba(45,212,191,.08), transparent 40%),
+                  rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:16px;
+      overflow:hidden;
+      min-height:0;
+      position:relative;
+      box-shadow: 0 18px 42px rgba(0,0,0,.35);
+    }
+    #map svg{
+      width:100%;
+      height:100%;
+      display:block;
+      touch-action:none;
+      user-select:none;
+      -webkit-user-select:none;
+    }
+
+    .state{
+      fill: rgba(255,255,255,.10);
+      stroke: rgba(255,255,255,.18);
+      stroke-width: 1;
+      cursor:pointer;
+      vector-effect: non-scaling-stroke;
+      transition: fill 120ms ease;
+    }
+    .state:hover{ fill: rgba(255,255,255,.16); }
+    .state.is-active{ fill: rgba(99,179,237,.18); }
+
+    .nation-outline{
+      fill:none;
+      stroke: rgba(255,255,255,.16);
+      stroke-width: 1;
+      pointer-events:none;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .err{
+      position:absolute;
+      left:12px; right:12px; bottom:10px;
+      opacity:.85;
+      font-size:13px;
+      pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="menu-wrap">
+    <button class="menu-btn" id="menuBtn" aria-expanded="false">☰ Menu</button>
+    <div class="menu-panel" id="menuPanel">
+      <h4>Zip Code (Radius)</h4>
+      <div class="field">
+        <label for="menuZip">ZIP code</label>
+        <input id="menuZip" placeholder="e.g. 90210" autocomplete="postal-code" />
+      </div>
+      <div class="field">
+        <label for="menuRadius">Radius (miles)</label>
+        <input id="menuRadius" type="number" min="1" value="25" />
+      </div>
+      <div class="actions">
+        <button type="button" data-zip-wizard="trunking">Trunk-Recorder Wizard</button>
+        <button type="button" data-zip-wizard="sdrtrunk">SDRTrunk Wizard</button>
+        <button type="button" data-zip-wizard="op25">OP25 Wizard</button>
+      </div>
+      <a class="link" href="/about">About CodePlug-PB</a>
+    </div>
+  </div>
+  <div class="title">
+    <h1>CodePlug-PB · Browse by State</h1>
+    <p class="hint">Click a state (map or list) → then pick a county.</p>
+  </div>
+  <div class="pill">Live CodePlug-PB backend</div>
+</header>
+
+<div id="wrap">
+  <aside id="panel">
+    <div id="panelTop">
+      <input id="q" class="search" placeholder="Search states…" autocomplete="off" />
+      <div class="hint" style="margin:0;">Tip: Hover a state in the list to highlight it on the map.</div>
+    </div>
+    <div id="list"></div>
+  </aside>
+
+  <main id="map">
+    <div id="err" class="err"></div>
+  </main>
+</div>
+
+<script src="/static/js/d3.min.js"></script>
+<script src="/static/js/topojson-client.min.js"></script>
+<script>
+  // ALBERS-PROJECTED coordinates (x/y already), so we MUST use geoIdentity()
+  const TOPO_URL = "/static/data/states-albers-10m.json";
+  const W = 975, H = 610, PAD = 18;
+
+  // Optional: show only Lower 48 + DC on the map (still keeps AK/HI in the list)
+  const MAP_EXCLUDE = new Set(["60","66","69","72","78"]); // AK, HI, territories
+
+  const STATE_ABBR = {
+    "01":"AL","02":"AK","04":"AZ","05":"AR","06":"CA","08":"CO","09":"CT","10":"DE","11":"DC","12":"FL",
+    "13":"GA","15":"HI","16":"ID","17":"IL","18":"IN","19":"IA","20":"KS","21":"KY","22":"LA","23":"ME",
+    "24":"MD","25":"MA","26":"MI","27":"MN","28":"MS","29":"MO","30":"MT","31":"NE","32":"NV","33":"NH",
+    "34":"NJ","35":"NM","36":"NY","37":"NC","38":"ND","39":"OH","40":"OK","41":"OR","42":"PA","44":"RI",
+    "45":"SC","46":"SD","47":"TN","48":"TX","49":"UT","50":"VT","51":"VA","53":"WA","54":"WV","55":"WI","56":"WY"
+  };
+
+  function slugifyName(name){
+    return String(name || "").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"") || "area";
+  }
+
+  function pickStateAbbr(data){
+    const c = data?.county || data?.county_info || data?.center_county || {};
+    const fromCounty = (c.state_abbrev || c.state || c.state_code || "").toString().toLowerCase();
+    if (fromCounty) return fromCounty;
+    const trunk = (data?.trunked || [])[0] || {};
+    const fromTrunk = (trunk.state_abbrev || trunk.state || "").toString().toLowerCase();
+    if (fromTrunk) return fromTrunk;
+    return "";
+  }
+
+  function pickCountySlug(data){
+    const c = data?.county || data?.county_info || data?.center_county || {};
+    const name = c.county_name || c.name || c.county || "";
+    return slugifyName(name);
+  }
+
+  async function lookupZipCounty(zip){
+    try{
+      const url = new URL("/hpdb/query/by-zip", window.location.origin);
+      url.searchParams.set("zip", zip);
+      url.searchParams.set("radius_miles", "0");
+      url.searchParams.set("include_trunk_site_frequencies", "false");
+      url.searchParams.set("include_trunk_sites", "false");
+      url.searchParams.set("include_talkgroups", "false");
+      const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const stateAbbr = pickStateAbbr(data);
+      const countySlug = pickCountySlug(data);
+      if (!stateAbbr) return null;
+      return { stateAbbr, countySlug };
+    }catch(err){
+      console.error("lookupZipCounty", err);
+      return null;
+    }
+  }
+
+  function wireZipMenu(){
+    if (!menuBtn || !menuPanel) return;
+    const closeMenu = () => {
+      menuPanel.style.display = "none";
+      menuBtn.setAttribute("aria-expanded","false");
+    };
+    const openMenu = () => {
+      menuPanel.style.display = "block";
+      menuBtn.setAttribute("aria-expanded","true");
+    };
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = menuPanel.style.display === "block";
+      if (isOpen) closeMenu(); else openMenu();
+    });
+    document.addEventListener("click", (e) => {
+      if (menuPanel.style.display !== "block") return;
+      if (!menuPanel.contains(e.target) && e.target !== menuBtn){
+        closeMenu();
+      }
+    });
+    if (menuRadius && !menuRadius.value) menuRadius.value = 25;
+
+    const buttons = document.querySelectorAll("[data-zip-wizard]");
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        closeMenu();
+        const zip = (menuZip?.value || "").trim();
+        const radius = Number(menuRadius?.value || 25);
+        if (!zip){
+          errEl.textContent = "Enter a ZIP code to search.";
+          return;
+        }
+        errEl.textContent = "";
+        try{
+          const url = new URL("/hpdb/query/by-zip", window.location.origin);
+          url.searchParams.set("zip", zip);
+          url.searchParams.set("radius_miles", (isFinite(radius) && radius > 0) ? radius : 25);
+          url.searchParams.set("include_trunk_site_frequencies", "true");
+          const res = await fetch(url.toString(), { headers: { "Accept": "application/json" } });
+          const ctype = (res.headers.get("content-type") || "").toLowerCase();
+          if (!ctype.includes("application/json")){
+            const txt = await res.text();
+            throw new Error(`Expected JSON, got ${ctype || "unknown"}: ${txt.slice(0,300)}`);
+          }
+          if (!res.ok){
+            const txt = await res.text();
+            throw new Error(`API ${res.status}: ${txt.slice(0,300)}`);
+          }
+          const data = await res.json();
+          let stateAbbr = pickStateAbbr(data);
+          if (!stateAbbr){
+            const fallback = await lookupZipCounty(zip);
+            if (fallback){
+              stateAbbr = fallback.stateAbbr;
+            }
+          }
+          if (stateAbbr){
+            const wizard = btn.getAttribute("data-zip-wizard") || "trunking";
+            const r = (isFinite(radius) && radius > 0) ? radius : 25;
+            const params = new URLSearchParams();
+            params.set("zip", zip);
+            params.set("radius", r);
+            params.set("wizard", wizard);
+            window.location.href = `/state/${encodeURIComponent(stateAbbr)}?${params.toString()}`;
+          } else {
+            errEl.textContent = "Could not determine state from ZIP response.";
+          }
+        }catch(err){
+          console.error(err);
+          errEl.textContent = err.message || "Failed to load ZIP data.";
+        }
+      });
+    });
+  }
+
+  const errEl  = document.getElementById("err");
+  const listEl = document.getElementById("list");
+  const qEl    = document.getElementById("q");
+  const menuBtn = document.getElementById("menuBtn");
+  const menuPanel = document.getElementById("menuPanel");
+  const menuZip = document.getElementById("menuZip");
+  const menuRadius = document.getElementById("menuRadius");
+
+  wireZipMenu();
+
+  const svg = d3.select("#map")
+    .append("svg")
+    .attr("viewBox", `0 0 ${W} ${H}`)
+    .attr("preserveAspectRatio", "xMidYMid meet");
+
+  // Prevent scroll/zoom gestures without blocking clicks
+  const svgNode = svg.node();
+  ["wheel","touchstart","touchmove","gesturestart","gesturechange","gestureend"].forEach((evt) => {
+    svgNode.addEventListener(evt, (e) => e.preventDefault(), { passive:false });
+  });
+
+  const gFit = svg.append("g"); // we will scale/translate this group to fit nicely
+
+  // IMPORTANT for *-albers-10m.json:
+  // - use geoIdentity()
+  // - do NOT apply a geographic projection like geoMercator()
+  const path = d3.geoPath(d3.geoIdentity());
+
+  let statePathById = new Map();
+  let stateItemById = new Map();
+  let activeId = null;
+
+  function showErr(msg){ errEl.textContent = msg; }
+
+  function setActive(id){
+    activeId = id;
+    for (const [sid, sel] of statePathById.entries()){
+      sel.classed("is-active", sid === id);
+    }
+    for (const [sid, el] of stateItemById.entries()){
+      el.classList.toggle("is-active", sid === id);
+    }
+  }
+
+  function goState(id){
+    const abbr = STATE_ABBR[id] || id;
+    window.location.href = `/state/${encodeURIComponent(abbr)}`;
+  }
+
+  function escapeHtml(s){
+    return String(s)
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  function renderList(statesAll){
+    listEl.innerHTML = "";
+    stateItemById.clear();
+
+    const q = (qEl.value || "").trim().toLowerCase();
+    const filtered = statesAll
+      .slice()
+      .sort((a,b) => a.name.localeCompare(b.name))
+      .filter((s) => !q || s.name.toLowerCase().includes(q) || s.id.includes(q));
+
+    for (const s of filtered){
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "item";
+      btn.innerHTML = `<span>${escapeHtml(s.name)}</span><span class="meta">${escapeHtml(s.id)}</span>`;
+
+      btn.addEventListener("mouseenter", () => setActive(s.id));
+      btn.addEventListener("mouseleave", () => setActive(null));
+      btn.addEventListener("click", () => goState(s.id));
+
+      listEl.appendChild(btn);
+      stateItemById.set(s.id, btn);
+    }
+  }
+
+  function fitGroupToFeatures(features){
+    // compute bounds in SVG coordinates (since albers topo is already x/y)
+    const b = path.bounds({ type:"FeatureCollection", features });
+
+    const dx = b[1][0] - b[0][0];
+    const dy = b[1][1] - b[0][1];
+    if (!isFinite(dx) || !isFinite(dy) || dx <= 0 || dy <= 0) return;
+
+    const scale = Math.min((W - PAD * 2) / dx, (H - PAD * 2) / dy);
+    const cx = (b[0][0] + b[1][0]) / 2;
+    const cy = (b[0][1] + b[1][1]) / 2;
+
+    const tx = W/2 - scale * cx;
+    const ty = H/2 - scale * cy;
+
+    gFit.attr("transform", `translate(${tx},${ty}) scale(${scale})`);
+  }
+
+  (async () => {
+    try{
+      const topo = await d3.json(TOPO_URL);
+
+      const nation = topojson.feature(topo, topo.objects.nation);
+      const statesFeat = topojson.feature(topo, topo.objects.states).features;
+
+      const statesAll = statesFeat.map((f) => {
+        const id = String(f.id).padStart(2,"0");
+        const name = (f.properties && f.properties.name) ? f.properties.name : `State ${id}`;
+        return { id, name, feature:f };
+      });
+
+      renderList(statesAll);
+      qEl.addEventListener("input", () => renderList(statesAll));
+
+      const statesForMap = statesAll.filter((s) => !MAP_EXCLUDE.has(s.id));
+
+      // Fit transform for the exact features we draw (Lower 48 + DC)
+      fitGroupToFeatures(statesForMap.map((s) => s.feature));
+
+      gFit.append("path")
+        .datum(nation)
+        .attr("class","nation-outline")
+        .attr("d", path);
+
+      const paths = gFit.append("g")
+        .selectAll("path")
+        .data(statesForMap)
+        .join("path")
+        .attr("class","state")
+        .attr("d", (d) => path(d.feature))
+        .on("mouseenter", (_, d) => setActive(d.id))
+        .on("mouseleave", () => setActive(null))
+        .on("click", (_, d) => goState(d.id));
+
+      paths.append("title").text((d) => d.name);
+
+      statePathById.clear();
+      paths.each(function(d){
+        statePathById.set(d.id, d3.select(this));
+      });
+    }catch(e){
+      console.error(e);
+      showErr("Failed to load map data. Check Console for details.");
+    }
+  })();
+</script>
+</body>
+</html>
